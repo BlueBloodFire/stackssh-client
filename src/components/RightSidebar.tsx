@@ -221,7 +221,7 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
           borderColor: colors.border,
         }}
       >
-        {/* 左侧：技能 */}
+        {/* 左侧：拆解 */}
         <button
           className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all"
           style={{
@@ -233,7 +233,7 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
           </svg>
-          技能
+          拆解
         </button>
 
         {/* 右侧：新建 + 历史 */}
@@ -316,7 +316,7 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
             {/* 附件 */}
             <button
               className="p-1.5 rounded-md transition-colors"
-              style={{ backgroundColor: '#3c3c3c', color: colors.textSecondary }}
+              style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}
               title="附件"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -326,7 +326,7 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
             {/* 图片 */}
             <button
               className="p-1.5 rounded-md transition-colors"
-              style={{ backgroundColor: '#3c3c3c', color: colors.textSecondary }}
+              style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}
               title="上传图片"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -341,9 +341,10 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
               disabled={!canSend}
               className="p-1.5 rounded-md transition-colors"
               style={{
-                backgroundColor: canSend ? colors.accent : '#3c3c3c',
+                backgroundColor: canSend ? colors.accent : colors.bgTertiary,
                 color: canSend ? '#fff' : colors.textSecondary,
                 opacity: canSend ? 1 : 0.5,
+                cursor: canSend ? 'pointer' : 'not-allowed',
               }}
               title="发送"
             >
@@ -357,7 +358,7 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
         {/* 底部状态栏：模型选择 + 发送模式 */}
         <div className="flex items-center mt-2 text-[11px]" style={{ color: colors.textDim }}>
           {/* 左侧：模型选择器 */}
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors hover:bg-white/5" style={{ backgroundColor: '#3c3c3c' }}>
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors hover:bg-white/5" style={{ backgroundColor: colors.bgTertiary }}>
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colors.green }} />
             <span className="font-medium truncate max-w-[100px]" style={{ color: colors.textSecondary }}>gpt-4.1</span>
             <svg className="w-3 h-3 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
