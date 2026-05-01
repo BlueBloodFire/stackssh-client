@@ -50,11 +50,6 @@ export function ActivityBar({ activeTab, onTabChange, onOpenSettings }: Activity
       className="w-12 flex flex-col items-center py-2 flex-shrink-0"
       style={{ backgroundColor: colors.bgTertiary, borderRight: `1px solid ${colors.border}` }}
     >
-      {/* Logo */}
-      <div className="mb-2 w-10 h-10 flex items-center justify-center rounded-lg overflow-hidden">
-        <img src="/logo.png" alt="WaLiSSH" className="w-7 h-7 object-contain rounded" />
-      </div>
-
       {/* Tab 按钮 */}
       <div className="flex flex-col gap-0.5">
         {tabs.map((tab) => {
