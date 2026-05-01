@@ -18,7 +18,7 @@ export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, term
   return (
     <div
       className="h-12 flex items-center px-4 flex-shrink-0"
-      style={{ backgroundColor: colors.bgTitleBar, borderBottom: `1px solid ${colors.border}` }}
+      style={{ backgroundColor: colors.bgSecondary, borderBottom: `1px solid ${colors.border}` }}
     >
       {/* 左侧：折叠 + 添加连接 */}
       <div className="flex items-center gap-2">
