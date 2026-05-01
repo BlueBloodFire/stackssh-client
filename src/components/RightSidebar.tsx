@@ -291,7 +291,6 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder="向 WaLiSSH 提问... (@ 技能 · ↑↓ 历史 · Enter 发送)"
             rows={4}
             className="w-full bg-transparent resize-none outline-none text-[13px] leading-relaxed"
             style={{

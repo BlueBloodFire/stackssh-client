@@ -24,17 +24,21 @@ export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, term
       <div className="flex items-center gap-2">
         <button
           onClick={onToggleSidebar}
-          className="p-1.5 rounded transition-colors"
-          style={{ color: colors.textSecondary }}
+          className="w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200"
+          style={{ color: colors.textSecondary, backgroundColor: 'transparent' }}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${colors.textSecondary}15`}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
           title="切换侧边栏 (⌘B)"
         >
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            {sidebarVisible ? (
-              <path d="M11 17l-4-4 4-4M18 13h-9" />
-            ) : (
-              <path d="M13 7l4 4-4 4M6 13h9" />
-            )}
-          </svg>
+          <div className="flex items-center justify-center">
+            <svg className="w-[15px] h-[15px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              {sidebarVisible ? (
+                <path d="M11 17l-4-4 4-4M18 13h-9" />
+              ) : (
+                <path d="M13 7l4 4-4 4M6 13h9" />
+              )}
+            </svg>
+          </div>
         </button>
 
         {currentConn ? (
