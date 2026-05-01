@@ -31,7 +31,7 @@ const mockFileTree = [
   }
 ]
 
-export function LeftSidebar({ activeTab }: LeftSidebarProps) {
+export function LeftSidebar({ activeTab, onOpenSettings }: LeftSidebarProps) {
   const { colors } = useThemeStore()
   const { connections, currentConnectionId, selectConnection } = useConnectionStore()
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set(['/']))
@@ -115,19 +115,7 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'servers' ? (
           <div className="p-2">
-            {/* 添加按钮 */}
-            <button
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium mb-2 transition-colors"
-              style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary, border: `1px solid ${colors.border}` }}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              添加 SSH 连接
-            </button>
-
-            {connections.length === 0 ? (
+                {connections.length === 0 ? (
               <div className="text-center py-10 px-4">
                 <svg className="w-12 h-12 mx-auto mb-3 opacity-30" viewBox="0 0 24 24" fill="none" stroke={colors.textDim} strokeWidth="1.5">
                   <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>

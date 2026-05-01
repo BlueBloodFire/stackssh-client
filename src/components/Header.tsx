@@ -20,39 +20,50 @@ export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, term
       className="h-12 flex items-center px-4 flex-shrink-0"
       style={{ backgroundColor: colors.bgTitleBar, borderBottom: `1px solid ${colors.border}` }}
     >
-      {/* 左侧：折叠 + 连接信息 */}
+      {/* 左侧：折叠 + 添加连接 */}
       <div className="flex items-center gap-2">
+        {/* 折叠按钮 */}
         <button
           onClick={onToggleSidebar}
-          className="w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200"
-          style={{ color: colors.textSecondary, backgroundColor: 'transparent' }}
-          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = `${colors.textSecondary}15`}
-          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+          className="w-6 h-[22px] flex items-center justify-center rounded transition-all duration-150"
+          style={{ backgroundColor: 'transparent', color: colors.textSecondary }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${colors.accent}18`; e.currentTarget.style.color = colors.accent }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = colors.textSecondary }}
           title="切换侧边栏 (⌘B)"
         >
-          <div className="flex items-center justify-center">
-            <svg className="w-[15px] h-[15px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              {sidebarVisible ? (
-                <path d="M11 17l-4-4 4-4M18 13h-9" />
-              ) : (
-                <path d="M13 7l4 4-4 4M6 13h9" />
-              )}
-            </svg>
-          </div>
+          <svg className="w-[13px] h-[13px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            {sidebarVisible ? (
+              <path d="M11 17l-4-4 4-4M18 13h-9" />
+            ) : (
+              <path d="M13 7l4 4-4 4M6 13h9" />
+            )}
+          </svg>
         </button>
 
-        {currentConn ? (
+        {/* 添加连接按钮 */}
+        <button
+          onClick={() => {}}
+          className="flex items-center gap-1.5 h-[22px] pl-1.5 pr-2 rounded transition-all duration-150"
+          style={{ backgroundColor: 'transparent', color: colors.textSecondary }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${colors.accent}18`; e.currentTarget.style.color = colors.accent }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = colors.textSecondary }}
+          title="添加 SSH 连接"
+        >
+          <svg className="w-[13px] h-[13px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span className="text-[12px] leading-none">添加连接（SSH）</span>
+        </button>
+
+        {/* 连接信息 */}
+        {currentConn && (
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colors.green }} />
-            <span className="text-sm font-medium" style={{ color: colors.text }}>{currentConn.name}</span>
-            <span className="text-xs font-mono" style={{ color: colors.textDim }}>
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colors.green }} />
+            <span className="text-xs font-medium" style={{ color: colors.text }}>{currentConn.name}</span>
+            <span className="text-[11px] font-mono" style={{ color: colors.textDim }}>
               {currentConn.username}@{currentConn.host}:{currentConn.port}
             </span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="WaLiSSH" className="w-5 h-5 object-contain rounded" />
-            <span className="font-semibold text-sm" style={{ color: colors.text }}>WaLiSSH</span>
           </div>
         )}
       </div>
