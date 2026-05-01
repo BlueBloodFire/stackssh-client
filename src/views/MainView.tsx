@@ -1,98 +1,150 @@
-import { useState } from 'react'
-import { Sidebar } from '../components/Sidebar'
+import { useState, useEffect, useCallback } from 'react'
+import { Header } from '../components/Header'
+import { ActivityBar } from '../components/ActivityBar'
+import { LeftSidebar } from '../components/LeftSidebar'
+import { RightSidebar } from '../components/RightSidebar'
 import { TerminalPanel } from '../components/TerminalPanel'
-import { AgentChat } from '../components/AgentChat'
-import { CodeEditor } from '../components/CodeEditor'
+import { Settings } from '../components/Settings'
+import { useThemeStore } from '../stores/themeStore'
 
-type ViewMode = 'terminal' | 'chat' | 'editor' | 'split-h' | 'split-v'
+type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
 export function MainView() {
-  const [viewMode, setViewMode] = useState<ViewMode>('split-h')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabId>('servers')
+  const [sidebarVisible, setSidebarVisible] = useState(true)
+  const [sidebarWidth, setSidebarWidth] = useState(260)
+  const [chatVisible, setChatVisible] = useState(true)
+  const [chatWidth, setChatWidth] = useState(400)
+  const [terminalVisible, setTerminalVisible] = useState(true)
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false)
+  const [isResizingChat, setIsResizingChat] = useState(false)
+
+  const { colors } = useThemeStore()
+
+  // Sidebar 拖拽
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizingSidebar(true)
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(180, Math.min(500, startWidth + (moveEvent.clientX - startX)))
+      setSidebarWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      setIsResizingSidebar(false)
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'col-resize'
+  }, [sidebarWidth])
+
+  // Chat 拖拽
+  const handleChatResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizingChat(true)
+    const startX = e.clientX
+    const startWidth = chatWidth
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(300, Math.min(700, startWidth - (moveEvent.clientX - startX)))
+      setChatWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      setIsResizingChat(false)
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'col-resize'
+  }, [chatWidth])
+
+  useEffect(() => {
+    document.body.style.backgroundColor = colors.bgPrimary
+    document.body.style.color = colors.text
+  }, [colors])
 
   return (
-    <div className="h-full flex bg-[#1e1e1e]">
-      {/* 侧边栏 */}
-      <Sidebar />
+    <div className="w-screen h-screen flex flex-col overflow-hidden" style={{ backgroundColor: colors.bgPrimary }}>
+      {/* ===== 顶部标题栏 ===== */}
+      <Header
+        onToggleSidebar={() => setSidebarVisible(!sidebarVisible)}
+        sidebarVisible={sidebarVisible}
+        onToggleTerminal={() => setTerminalVisible(!terminalVisible)}
+        terminalVisible={terminalVisible}
+        onToggleChat={() => setChatVisible(!chatVisible)}
+        chatVisible={chatVisible}
+      />
 
-      {/* 主内容区 */}
-      <div className="flex-1 flex flex-col">
-        {/* 顶部工具栏 */}
-        <div className="h-10 bg-[#2d2d2d] border-b border-[#3c3c3c] flex items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-[#cccccc]">视图:</span>
-            <button
-              onClick={() => setViewMode('terminal')}
-              className={`px-2 py-1 text-xs rounded ${
-                viewMode === 'terminal' ? 'bg-[#094771] text-white' : 'text-[#cccccc] hover:bg-[#3c3c3c]'
-              }`}
-            >
-              终端
-            </button>
-            <button
-              onClick={() => setViewMode('chat')}
-              className={`px-2 py-1 text-xs rounded ${
-                viewMode === 'chat' ? 'bg-[#094771] text-white' : 'text-[#cccccc] hover:bg-[#3c3c3c]'
-              }`}
-            >
-              AI 对话
-            </button>
-            <button
-              onClick={() => setViewMode('editor')}
-              className={`px-2 py-1 text-xs rounded ${
-                viewMode === 'editor' ? 'bg-[#094771] text-white' : 'text-[#cccccc] hover:bg-[#3c3c3c]'
-              }`}
-            >
-              编辑器
-            </button>
-            <button
-              onClick={() => setViewMode('split-h')}
-              className={`px-2 py-1 text-xs rounded ${
-                viewMode === 'split-h' ? 'bg-[#094771] text-white' : 'text-[#cccccc] hover:bg-[#3c3c3c]'
-              }`}
-            >
-              左右分屏
-            </button>
-            <button
-              onClick={() => setViewMode('split-v')}
-              className={`px-2 py-1 text-xs rounded ${
-                viewMode === 'split-v' ? 'bg-[#094771] text-white' : 'text-[#cccccc] hover:bg-[#3c3c3c]'
-              }`}
-            >
-              上下分屏
-            </button>
-          </div>
-          <div className="text-xs text-[#6a6a6a]">
-            WaLiSSH v0.1.0
-          </div>
-        </div>
+      {/* ===== 主体区域 ===== */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* 左侧：ActivityBar + Sidebar */}
+        {sidebarVisible && (
+          <>
+            <ActivityBar activeTab={activeTab} onTabChange={setActiveTab} onOpenSettings={() => setSettingsOpen(true)} />
 
-        {/* 内容区域 */}
-        <div className="flex-1 flex overflow-hidden">
-          {viewMode === 'terminal' && <TerminalPanel />}
-          {viewMode === 'chat' && <AgentChat />}
-          {viewMode === 'editor' && <CodeEditor />}
-          {viewMode === 'split-h' && (
-            <>
-              <div className="flex-1 border-r border-[#3c3c3c]">
-                <TerminalPanel />
-              </div>
-              <div className="flex-1">
-                <AgentChat />
-              </div>
-            </>
-          )}
-          {viewMode === 'split-v' && (
-            <>
-              <div className="flex-1 border-b border-[#3c3c3c]">
-                <AgentChat />
-              </div>
-              <div className="flex-1">
-                <TerminalPanel />
-              </div>
-            </>
+            <div
+              className="flex-shrink-0 transition-none overflow-hidden relative"
+              style={{ width: sidebarWidth }}
+            >
+              <LeftSidebar activeTab={activeTab} onOpenSettings={() => setSettingsOpen(true)} />
+            </div>
+
+            {/* Sidebar 拖拽条 */}
+            <div
+              className="w-1.5 h-full cursor-col-resize relative z-50 flex-shrink-0"
+              style={{ backgroundColor: isResizingSidebar ? colors.accent : 'transparent' }}
+              onMouseDown={handleSidebarResizeStart}
+            >
+              <div
+                className={`absolute inset-y-0 -left-[3px] -right-[3px] ${isResizingSidebar ? '' : 'hover:bg-blue-500/30'} rounded-full`}
+              />
+            </div>
+          </>
+        )}
+
+        {/* 中间：终端 */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {terminalVisible ? (
+            <TerminalPanel />
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-sm" style={{ color: colors.textDim }}>终端已隐藏 (按 ⌘` 显示)</p>
+            </div>
           )}
         </div>
+
+        {/* 右侧：AI 对话面板 */}
+        {chatVisible && (
+          <>
+            {/* Chat 拖拽条 */}
+            <div
+              className="w-1.5 h-full cursor-col-resize relative z-50 flex-shrink-0 bg-[#3c3c3c]/40"
+              style={{ backgroundColor: isResizingChat ? colors.accent : undefined }}
+              onMouseDown={handleChatResizeStart}
+            >
+              <div
+                className={`absolute inset-y-0 -left-[3px] -right-[3px] ${isResizingChat ? '' : 'hover:bg-blue-500/30'} rounded-full`}
+              />
+            </div>
+            <RightSidebar width={chatWidth} />
+          </>
+        )}
       </div>
+
+      {/* 设置弹窗 */}
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
