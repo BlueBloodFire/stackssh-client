@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { SSHConnection, ServerStatus } from '../types'
 import * as sshApi from '../api/sshConnection'
+import { getBaseUrl, setBaseUrl as setRequestBaseUrl } from '../api/request'
 import type { SshConnectionDTO, SshConnectionPayload } from '../api/sshConnection'
 
 interface ConnectionStore {
@@ -12,8 +13,13 @@ interface ConnectionStore {
   serverStatus: ServerStatus
   // 列表加载中
   loading: boolean
+  // 服务端地址
+  serverUrl: string
   // 操作错误信息
   error: string | null
+
+  // 设置服务端地址
+  setServerUrl: (url: string) => void
 
   // 获取连接列表
   fetchConnections: (userId?: string) => Promise<void>
@@ -59,6 +65,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     connected: false,
     url: 'http://localhost:8091',
   },
+  serverUrl: getBaseUrl(),
   loading: false,
   error: null,
 
@@ -143,6 +150,11 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     set((state) => ({
       serverStatus: { ...state.serverStatus, ...status },
     })),
+
+  setServerUrl: (url: string) => {
+    setRequestBaseUrl(url)
+    set({ serverUrl: url, serverStatus: { ...get().serverStatus, url } })
+  },
 
   clearError: () => set({ error: null }),
 

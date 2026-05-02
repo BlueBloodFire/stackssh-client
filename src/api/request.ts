@@ -2,8 +2,9 @@
  * HTTP 请求客户端
  * 封装 fetch，统一处理响应格式和错误
  *
- * 开发模式：通过 Vite proxy 转发 /api → localhost:8091
- * 生产模式（Tauri）：直连 localhost:8091
+ * 默认行为（dev 模式）：baseUrl = ''，走 Vite proxy
+ * 用户在设置中修改服务端地址后：直接使用用户指定的地址，绕过 proxy
+ * 生产模式（Tauri）：直连用户配置的地址
  */
 
 /** 后端统一响应结构 */
@@ -13,8 +14,47 @@ export interface ApiResponse<T = unknown> {
   data: T | null
 }
 
-/** 服务端基础地址 */
-const BASE_URL = import.meta.env.DEV ? '' : 'http://localhost:8091'
+/** 默认服务端地址 */
+const DEFAULT_SERVER_URL = 'http://localhost:8091'
+
+/**
+ * 服务端基础地址
+ * - dev 模式默认空字符串（走 Vite proxy）
+ * - 用户显式设置后覆盖为实际地址（直连）
+ * - 生产模式从 localStorage 读取
+ */
+let baseUrl: string = import.meta.env.DEV
+  ? ''
+  : (localStorage.getItem('walissh_server_url') || DEFAULT_SERVER_URL)
+
+/** 获取当前服务端地址（显示用，空字符串时返回默认值） */
+export function getBaseUrl(): string {
+  return baseUrl || DEFAULT_SERVER_URL
+}
+
+/**
+ * 设置服务端地址（持久化到 localStorage）
+ *
+ * dev 模式下：
+ * - 传入空或默认地址 → baseUrl = ''（走 Vite proxy）
+ * - 传入其他地址 → baseUrl = 该地址（直连，绕过 proxy）
+ *
+ * 这样用户在设置页修改的地址才能真正生效
+ */
+export function setBaseUrl(url: string): void {
+  const trimmed = url.trim().replace(/\/+$/, '')
+  if (import.meta.env.DEV) {
+    // dev 模式：只有用户明确设置了非默认地址才直连，否则走 proxy
+    baseUrl = (!trimmed || trimmed === DEFAULT_SERVER_URL) ? '' : trimmed
+  } else {
+    baseUrl = trimmed || DEFAULT_SERVER_URL
+  }
+  if (trimmed && trimmed !== DEFAULT_SERVER_URL) {
+    localStorage.setItem('walissh_server_url', trimmed)
+  } else {
+    localStorage.removeItem('walissh_server_url')
+  }
+}
 
 /** 请求超时（毫秒） */
 const TIMEOUT_MS = 15000
@@ -29,7 +69,7 @@ async function request<T>(
   params?: Record<string, string>,
 ): Promise<ApiResponse<T>> {
   // 拼接 query string
-  let url = `${BASE_URL}${path}`
+  let url = `${baseUrl}${path}`
   if (params) {
     const qs = Object.entries(params)
       .filter(([, v]) => v !== undefined && v !== null && v !== '')
