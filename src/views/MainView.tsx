@@ -5,12 +5,14 @@ import { LeftSidebar } from '../components/LeftSidebar'
 import { RightSidebar } from '../components/RightSidebar'
 import { TerminalPanel } from '../components/TerminalPanel'
 import { Settings } from '../components/Settings'
+import { SSHConnectionModal } from '../components/SSHConnectionModal'
 import { useThemeStore } from '../stores/themeStore'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
 export function MainView() {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sshModalOpen, setSshModalOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('servers')
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(260)
@@ -85,6 +87,7 @@ export function MainView() {
         terminalVisible={terminalVisible}
         onToggleChat={() => setChatVisible(!chatVisible)}
         chatVisible={chatVisible}
+        onOpenSSHModal={() => setSshModalOpen(true)}
       />
 
       {/* ===== 主体区域 ===== */}
@@ -98,7 +101,7 @@ export function MainView() {
               className="flex-shrink-0 transition-none overflow-hidden relative"
               style={{ width: sidebarWidth }}
             >
-              <LeftSidebar activeTab={activeTab} onOpenSettings={() => setSettingsOpen(true)} />
+              <LeftSidebar activeTab={activeTab} />
             </div>
 
             {/* Sidebar 拖拽条 */}
@@ -142,6 +145,9 @@ export function MainView() {
           </>
         )}
       </div>
+
+      {/* SSH 连接配置弹窗 */}
+      <SSHConnectionModal open={sshModalOpen} onClose={() => setSshModalOpen(false)} />
 
       {/* 设置弹窗 */}
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />

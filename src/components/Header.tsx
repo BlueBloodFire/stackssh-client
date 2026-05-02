@@ -8,9 +8,10 @@ interface HeaderProps {
   terminalVisible: boolean
   onToggleChat: () => void
   chatVisible: boolean
+  onOpenSSHModal: () => void
 }
 
-export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, terminalVisible, onToggleChat, chatVisible }: HeaderProps) {
+export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, terminalVisible, onToggleChat, chatVisible, onOpenSSHModal }: HeaderProps) {
   const { colors } = useThemeStore()
   const { connections, currentConnectionId } = useConnectionStore()
   const currentConn = connections.find(c => c.id === currentConnectionId)
@@ -42,7 +43,7 @@ export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, term
 
         {/* 添加连接按钮 */}
         <button
-          onClick={() => {}}
+          onClick={onOpenSSHModal}
           className="flex items-center gap-1.5 h-[22px] pl-1.5 pr-2 rounded transition-all duration-150"
           style={{ backgroundColor: 'transparent', color: colors.textSecondary }}
           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${colors.accent}18`; e.currentTarget.style.color = colors.accent }}

@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { ConnectionStatus } from '../types'
+import { SSHConnectionModal } from './SSHConnectionModal'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
 interface LeftSidebarProps {
   activeTab: TabId
-  onOpenSettings: () => void
 }
 
 // 模拟文件树数据
@@ -31,18 +32,82 @@ const mockFileTree = [
   }
 ]
 
-export function LeftSidebar({ activeTab, onOpenSettings }: LeftSidebarProps) {
+/** 连接状态对应颜色 */
+function statusColor(status: number, colors: any): string {
+  switch (status) {
+    case ConnectionStatus.CONNECTED: return colors.green
+    case ConnectionStatus.CONNECTING: return colors.yellow
+    case ConnectionStatus.FAILED: return colors.red
+    default: return colors.textDim
+  }
+}
+
+/** 连接状态对应文字 */
+function statusText(status: number): string {
+  switch (status) {
+    case ConnectionStatus.CONNECTED: return '已连接'
+    case ConnectionStatus.CONNECTING: return '连接中'
+    case ConnectionStatus.FAILED: return '连接失败'
+    default: return '未连接'
+  }
+}
+
+export function LeftSidebar({ activeTab }: LeftSidebarProps) {
   const { colors } = useThemeStore()
-  const { connections, currentConnectionId, selectConnection } = useConnectionStore()
+  const { connections, currentConnectionId, selectConnection, fetchConnections, removeConnection, connect, disconnect, loading, error, clearError } = useConnectionStore()
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set(['/']))
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [connectingId, setConnectingId] = useState<string | null>(null)
 
   const currentConn = connections.find((c) => c.id === currentConnectionId)
+
+  // 新增：管理弹窗状态
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingConn, setEditingConn] = useState<{ id: string; name: string; host: string; port: number; username: string; authType: number } | null>(null)
+
+  // 首次挂载加载连接列表
+  useEffect(() => {
+    fetchConnections()
+  }, [fetchConnections])
 
   const toggleDir = (path: string) => {
     const next = new Set(expandedDirs)
     if (next.has(path)) next.delete(path)
     else next.add(path)
     setExpandedDirs(next)
+  }
+
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    setDeletingId(id)
+    await removeConnection(id)
+    setDeletingId(null)
+  }
+
+  const handleEdit = (e: React.MouseEvent, conn: { id: string; name: string; host: string; port: number; username: string; authType: number }) => {
+    e.stopPropagation()
+    setEditingConn(conn)
+    setModalOpen(true)
+  }
+
+  const handleCloseModal = () => {
+    setModalOpen(false)
+    setEditingConn(null)
+  }
+
+  const handleToggleConnection = async (e: React.MouseEvent, conn: { id: string; status: number }) => {
+    e.stopPropagation()
+    setConnectingId(conn.id)
+    if (conn.status === ConnectionStatus.CONNECTED) {
+      await disconnect(conn.id)
+    } else {
+      await connect(conn.id)
+    }
+    setConnectingId(null)
+  }
+
+  const handleRefresh = () => {
+    fetchConnections()
   }
 
   const renderTree = (nodes: any[], depth = 0, parentPath = '') => {
@@ -98,12 +163,27 @@ export function LeftSidebar({ activeTab, onOpenSettings }: LeftSidebarProps) {
     >
       {/* Header */}
       <div
-        className="h-9 flex items-center px-4 border-b flex-shrink-0"
+        className="h-9 flex items-center justify-between px-4 border-b flex-shrink-0"
         style={{ borderColor: colors.border }}
       >
         <span className="text-xs font-medium uppercase tracking-wider" style={{ color: colors.textSecondary }}>
           {tabLabels[activeTab]}
         </span>
+        {activeTab === 'servers' && (
+          <button
+            onClick={handleRefresh}
+            className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+            style={{ color: colors.textDim }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = colors.accent }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = colors.textDim }}
+            title="刷新连接列表"
+          >
+            <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M23 4v6h-6M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+          </button>
+        )}
         {currentConn && activeTab === 'files' && (
           <span className="ml-2 text-xs font-mono truncate" style={{ color: colors.textDim }}>
             — {currentConn.name}
@@ -115,7 +195,27 @@ export function LeftSidebar({ activeTab, onOpenSettings }: LeftSidebarProps) {
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'servers' ? (
           <div className="p-2">
-                {connections.length === 0 ? (
+            {/* 错误提示 */}
+            {error && (
+              <div
+                className="flex items-center justify-between gap-2 px-3 py-2 mb-2 rounded-md text-[11px]"
+                style={{ backgroundColor: `${colors.red}15`, color: colors.red, border: `1px solid ${colors.red}30` }}
+              >
+                <span className="truncate">{error}</span>
+                <button onClick={clearError} className="flex-shrink-0 opacity-60 hover:opacity-100">✕</button>
+              </div>
+            )}
+
+            {/* 加载状态 */}
+            {loading && connections.length === 0 ? (
+              <div className="flex items-center justify-center py-10 gap-2">
+                <svg className="w-4 h-4 animate-spin" style={{ color: colors.accent }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M23 4v6h-6M1 20v-6h6" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+                <span className="text-xs" style={{ color: colors.textSecondary }}>加载连接列表...</span>
+              </div>
+            ) : connections.length === 0 ? (
               <div className="text-center py-10 px-4">
                 <svg className="w-12 h-12 mx-auto mb-3 opacity-30" viewBox="0 0 24 24" fill="none" stroke={colors.textDim} strokeWidth="1.5">
                   <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
@@ -129,26 +229,87 @@ export function LeftSidebar({ activeTab, onOpenSettings }: LeftSidebarProps) {
               <div className="space-y-0.5">
                 {connections.map((conn) => {
                   const active = currentConnectionId === conn.id
+                  const isDeleting = deletingId === conn.id
                   return (
-                    <button
+                    <div
                       key={conn.id}
                       onClick={() => selectConnection(conn.id)}
-                      className="w-full text-left px-3 py-2.5 rounded-md transition-all group"
+                      className="w-full text-left px-3 py-2.5 rounded-md transition-all group cursor-pointer relative"
                       style={{
                         backgroundColor: active ? `${colors.accent}15` : 'transparent',
                         borderLeft: active ? `3px solid ${colors.accent}` : '3px solid transparent',
                       }}
+                      onMouseEnter={(e) => { if (!active) e.currentTarget.style.backgroundColor = `${colors.textDim}08` }}
+                      onMouseLeave={(e) => { if (!active) e.currentTarget.style.backgroundColor = 'transparent' }}
                     >
                       <div className="flex items-center gap-2 mb-0.5">
-                        <span className={`w-2 h-2 rounded-full`} style={{ backgroundColor: active ? colors.green : colors.textDim }} />
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(conn.status, colors) }} />
                         <span className="text-xs font-medium truncate" style={{ color: active ? colors.text : colors.textSecondary }}>
                           {conn.name}
                         </span>
+                        <span className="text-[10px] px-1 py-0 rounded" style={{ color: statusColor(conn.status, colors), backgroundColor: `${statusColor(conn.status, colors)}15` }}>
+                          {statusText(conn.status)}
+                        </span>
+                        {/* 连接/断开开关 */}
+                        <button
+                          onClick={(e) => handleToggleConnection(e, conn)}
+                          disabled={connectingId === conn.id}
+                          className={`w-8 h-4 rounded-full relative transition-colors flex-shrink-0 ${connectingId === conn.id ? 'opacity-50' : ''}`}
+                          style={{
+                            backgroundColor: conn.status === ConnectionStatus.CONNECTED ? colors.green : colors.textDim + '40',
+                          }}
+                          title={conn.status === ConnectionStatus.CONNECTED ? '断开连接' : '建立连接'}
+                        >
+                          <span
+                            className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all"
+                            style={{
+                              left: conn.status === ConnectionStatus.CONNECTED ? '18px' : '2px',
+                            }}
+                          />
+                        </button>
+                        {/* 编辑按钮 */}
+                        <button
+                          onClick={(e) => handleEdit(e, {
+                            id: conn.id,
+                            name: conn.name,
+                            host: conn.host,
+                            port: conn.port,
+                            username: conn.username,
+                            authType: conn.authType,
+                          })}
+                          className="opacity-0 group-hover:opacity-60 hover:!opacity-100 w-5 h-5 flex items-center justify-center rounded transition-opacity flex-shrink-0"
+                          style={{ color: colors.textDim }}
+                          title="编辑连接"
+                        >
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        {/* 删除按钮 */}
+                        <button
+                          onClick={(e) => handleDelete(e, conn.id)}
+                          className="ml-auto opacity-0 group-hover:opacity-60 hover:!opacity-100 w-5 h-5 flex items-center justify-center rounded transition-opacity flex-shrink-0"
+                          style={{ color: colors.textDim }}
+                          title="删除连接"
+                        >
+                          {isDeleting ? (
+                            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M23 4v6h-6M1 20v-6h6" />
+                              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                            </svg>
+                          ) : (
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          )}
+                        </button>
                       </div>
                       <div className="text-[11px] font-mono truncate pl-4" style={{ color: colors.textDim }}>
                         {conn.username}@{conn.host}:{conn.port}
                       </div>
-                    </button>
+                    </div>
                   )
                 })}
               </div>
@@ -181,6 +342,13 @@ export function LeftSidebar({ activeTab, onOpenSettings }: LeftSidebarProps) {
           </div>
         )}
       </div>
+
+      {/* SSH 连接弹窗：新建 / 编辑 */}
+      <SSHConnectionModal
+        open={modalOpen}
+        onClose={handleCloseModal}
+        editingConnection={editingConn}
+      />
     </div>
   )
 }
