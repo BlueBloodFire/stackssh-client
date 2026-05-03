@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { SSHConnection, ServerStatus } from '../types'
+import { ConnectionStatus } from '../types'
 import * as sshApi from '../api/sshConnection'
 import { getBaseUrl, setBaseUrl as setRequestBaseUrl } from '../api/request'
 import type { SshConnectionDTO, SshConnectionPayload } from '../api/sshConnection'
@@ -41,6 +42,12 @@ interface ConnectionStore {
   connect: (id: string) => Promise<boolean>
   // 断开 SSH 连接
   disconnect: (id: string) => Promise<boolean>
+
+  // ===== 心跳检测 =====
+  /** 启动心跳：定期检查已连接的 SSH 状态 */
+  startHeartbeat: () => void
+  /** 停止心跳 */
+  stopHeartbeat: () => void
 }
 
 /** 后端 DTO → 前端模型 */
@@ -57,6 +64,8 @@ function dtoToConnection(dto: SshConnectionDTO): SSHConnection {
     updatedAt: dto.updatedAt ? new Date(dto.updatedAt).getTime() : Date.now(),
   }
 }
+
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
 export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   connections: [],
@@ -197,6 +206,46 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     } catch {
       set({ error: '网络错误，无法连接服务器' })
       return false
+    }
+  },
+
+  // ===== 心跳检测 =====
+  startHeartbeat: () => {
+    if (heartbeatTimer) return // 已启动
+
+    heartbeatTimer = setInterval(async () => {
+      const state = get()
+      const activeConns = state.connections.filter((c) => c.status === ConnectionStatus.CONNECTED)
+      if (activeConns.length === 0) return
+
+      for (const conn of activeConns) {
+        try {
+          const res = await sshApi.getConnection(conn.id)
+          if (res.code === '0000' && res.data) {
+            if (res.data.status !== conn.status) {
+              set((s) => ({
+                connections: s.connections.map((c) =>
+                  c.id === conn.id ? { ...c, status: res.data!.status } : c
+                ),
+              }))
+            }
+          }
+        } catch {
+          // 网络异常：标记为失败（红色），表示后端服务不可达
+          set((s) => ({
+            connections: s.connections.map((c) =>
+              c.id === conn.id ? { ...c, status: ConnectionStatus.FAILED } : c
+            ),
+          }))
+        }
+      }
+    }, 10000)
+  },
+
+  stopHeartbeat: () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = null
     }
   },
 }))

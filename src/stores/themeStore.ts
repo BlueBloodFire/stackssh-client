@@ -113,19 +113,42 @@ export const themes: Record<ThemeName, ThemeConfig> = {
   },
 }
 
+const THEME_STORAGE_KEY = 'walissh_theme'
+
+/** 从 localStorage 读取已保存的主题，默认 dark */
+function getInitialTheme(): ThemeName {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY)
+    if (saved && saved in themes) {
+      return saved as ThemeName
+    }
+  } catch {
+    // localStorage 不可用时忽略
+  }
+  return 'dark'
+}
+
 interface ThemeStore {
   currentTheme: ThemeName
   colors: ThemeColors
   setTheme: (name: ThemeName) => void
 }
 
-export const useThemeStore = create<ThemeStore>((set) => ({
-  currentTheme: 'dark',
-  colors: themes.dark.colors,
+const initialTheme = getInitialTheme()
 
-  setTheme: (name) =>
+export const useThemeStore = create<ThemeStore>((set) => ({
+  currentTheme: initialTheme,
+  colors: themes[initialTheme].colors,
+
+  setTheme: (name) => {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, name)
+    } catch {
+      // localStorage 不可用时忽略
+    }
     set({
       currentTheme: name,
       colors: themes[name].colors,
-    }),
+    })
+  },
 }))

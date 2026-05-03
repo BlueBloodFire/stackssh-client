@@ -233,7 +233,15 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
                   return (
                     <div
                       key={conn.id}
-                      onClick={() => selectConnection(conn.id)}
+                      onClick={async () => {
+                        selectConnection(conn.id)
+                        // 未连接状态下点击，自动发起 SSH 连接
+                        if (conn.status === ConnectionStatus.DISCONNECTED) {
+                          setConnectingId(conn.id)
+                          await connect(conn.id)
+                          setConnectingId(null)
+                        }
+                      }}
                       className="w-full text-left px-3 py-2.5 rounded-md transition-all group cursor-pointer relative"
                       style={{
                         backgroundColor: active ? `${colors.accent}15` : 'transparent',

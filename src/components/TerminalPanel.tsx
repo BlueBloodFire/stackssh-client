@@ -1,28 +1,71 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { openTerminal, writeInput, readOutput, resizeTerminal, closeTerminal } from '../api/terminal'
+import { ConnectionStatus } from '../types'
+
+/** 终端会话状态 */
+interface TerminalSession {
+  sessionId: string
+  connectionId: string
+}
+
+/** 每个连接持有的终端状态 */
+interface ConnectionTerminalState {
+  terminal: Terminal
+  fitAddon: FitAddon
+  container: HTMLDivElement          // 每个连接独立的 DOM 容器
+  session: TerminalSession | null
+  pollTimer: ReturnType<typeof setInterval> | null
+  onDataDisposable: { dispose(): void } | null
+  disconnected: boolean
+  connecting: boolean                 // 防止并发 openTerminal
+  resizeObserver: ResizeObserver | null
+  /** 上次发送给后端的 cols/rows，用于去重避免重复 resize 导致 shell 重绘 prompt */
+  lastSentSize: { cols: number; rows: number }
+  /** 输入缓冲：积攒字符后批量发送，减少网络往返 */
+  inputBuffer: string[] | null
+  /** 输入 flush 定时器 */
+  inputFlushTimer: ReturnType<typeof setTimeout> | null
+}
+
+/** 轮询间隔（ms） */
+const POLL_INTERVAL = 50
+
+/** 后端返回的断连标记 */
+const DISCONNECT_MARKER = '[连接已断开]'
+
+/** 轮询连续错误阈值，超过则判定为断开 */
+const POLL_ERROR_THRESHOLD = 3
+
+/** 重连退避间隔（ms） */
+const RECONNECT_INTERVAL = 5000
 
 export function TerminalPanel() {
   const { colors } = useThemeStore()
-  const { currentConnectionId, connections } = useConnectionStore()
-  const terminalRef = useRef<HTMLDivElement>(null)
-  const terminalInstance = useRef<Terminal | null>(null)
-  const [, setShowNewConnection] = useState(false)
+  const { currentConnectionId, connections, connect, disconnect } = useConnectionStore()
+
+  /** connectionId → 终端状态（每个连接独立 Terminal 实例，切换时保留日志） */
+  const terminalStates = useRef<Map<string, ConnectionTerminalState>>(new Map())
+  /** 外层容器，承载所有终端容器 */
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  /** 当前活跃连接 ID，用于 ResizeObserver 判断是否发送 resize */
+  const activeConnectionIdRef = useRef<string | null>(null)
 
   const currentConn = connections.find((c) => c.id === currentConnectionId)
 
-  useEffect(() => {
-    if (!terminalRef.current || terminalInstance.current) return
-
-    const term = new Terminal({
+  /** 创建 xterm Terminal 实例（共享配置） */
+  const createTerminalInstance = useCallback(() => {
+    return new Terminal({
       cursorBlink: true,
+      cursorStyle: 'block',
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+      scrollback: 100000,  // 不限制存储，保留完整操作日志
       theme: {
         background: colors.bgPrimary,
         foreground: colors.text,
@@ -49,110 +92,458 @@ export function TerminalPanel() {
       },
       rows: 24,
       cols: 120,
+      allowProposedApi: false,
     })
+  }, [colors])
 
+  /** 停止指定连接的轮询 */
+  const stopPolling = useCallback((state: ConnectionTerminalState) => {
+    if (state.pollTimer) {
+      clearInterval(state.pollTimer)
+      state.pollTimer = null
+    }
+  }, [])
+
+  /** 标记终端断开并清理 */
+  const markDisconnected = useCallback((state: ConnectionTerminalState, reason: string) => {
+    if (state.disconnected) return
+    state.disconnected = true
+    stopPolling(state)
+
+    // 更新前端连接状态
+    const conn = connections.find((c) => c.id === state.session!.connectionId)
+    if (conn && conn.status === ConnectionStatus.CONNECTED) {
+      disconnect(conn.id).catch(() => {})
+    }
+
+    state.terminal.writeln(`\x1b[33m\r\n*** ${reason} ***\x1b[0m`)
+  }, [stopPolling, connections, disconnect])
+
+  /** 启动轮询 */
+  const startPolling = useCallback((state: ConnectionTerminalState) => {
+    stopPolling(state)
+    const sessionId = state.session!.sessionId
+    let errorCount = 0
+
+    state.pollTimer = setInterval(async () => {
+      try {
+        const res = await readOutput(sessionId)
+
+        // 成功响应
+        if (res.code === '0000') {
+          errorCount = 0
+          if (res.data?.output) {
+            const output = res.data.output
+            // 检测后端断连标记
+            if (output.includes(DISCONNECT_MARKER)) {
+              markDisconnected(state, '连接已断开')
+              return
+            }
+            state.terminal.write(output)
+          }
+          return
+        }
+
+        // 会话不存在/已关闭 → 立即断开
+        if (res.code === 'ILLEGAL_PARAMETER' && res.info?.includes('不存在')) {
+          markDisconnected(state, '会话已失效')
+          return
+        }
+
+        // 其他错误码 → 累计错误计数
+        errorCount++
+        if (errorCount >= POLL_ERROR_THRESHOLD) {
+          markDisconnected(state, '连接异常')
+        }
+      } catch {
+        // 网络异常 → 累计错误计数
+        errorCount++
+        if (errorCount >= POLL_ERROR_THRESHOLD) {
+          markDisconnected(state, '网络异常')
+        }
+      }
+    }, POLL_INTERVAL)
+  }, [stopPolling, markDisconnected])
+
+  /** 销毁指定连接的终端（断开/重连时调用，清空日志） */
+  const destroyTerminal = useCallback((connectionId: string) => {
+    const state = terminalStates.current.get(connectionId)
+    if (!state) return
+
+    // 停止轮询
+    stopPolling(state)
+
+    // 清理输入缓冲 flush 定时器
+    if (state.inputFlushTimer) {
+      clearTimeout(state.inputFlushTimer)
+    }
+
+    // 关闭后端会话
+    if (state.session) {
+      closeTerminal(state.session.sessionId).catch(() => {})
+    }
+
+    // 释放输入监听
+    state.onDataDisposable?.dispose()
+
+    // 释放 ResizeObserver
+    state.resizeObserver?.disconnect()
+
+    // 销毁 xterm 实例
+    state.terminal.dispose()
+
+    // 移除 DOM 容器
+    state.container.remove()
+
+    terminalStates.current.delete(connectionId)
+  }, [stopPolling])
+
+  /** 创建并打开终端会话 */
+  const openTerminalSession = useCallback(async (connectionId: string) => {
+    // 如果已有终端状态，检查是否正在连接中
+    const existingState = terminalStates.current.get(connectionId)
+    if (existingState && existingState.connecting) return
+
+    // 如果已有活跃会话（切换回来的场景），不需要重新打开
+    if (existingState && existingState.session && !existingState.disconnected) return
+
+    // 如果已断开（重连场景），先销毁旧终端清空日志
+    if (existingState && existingState.disconnected) {
+      destroyTerminal(connectionId)
+    }
+
+    // 确保外层容器存在
+    if (!wrapperRef.current) return
+
+    // 创建新的终端状态
+    const term = createTerminalInstance()
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
-    term.loadAddon(new WebLinksAddon())
 
     try {
       term.loadAddon(new WebglAddon())
-    } catch { /* 降级 */ }
+    } catch {
+      /* WebGL 不可用时降级 */
+    }
 
-    term.open(terminalRef.current)
+    // 创建独立的 DOM 容器 —— position:absolute 堆叠，visibility 切换不会改变尺寸
+    // bottom:24px 让容器比 wrapper 短一截，终端底部自然留出空白，避免 prompt 贴底
+    const container = document.createElement('div')
+    container.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:24px;padding:8px;overflow:hidden;'
+    wrapperRef.current.appendChild(container)
+
+    term.open(container)
     fitAddon.fit()
 
-    // 欢迎信息
-    term.writeln('')
-    term.writeln(`\x1b[1;36m  WaLiSSH Terminal\x1b[0m \x1b[90mv0.1.0\x1b[0m`)
-    term.writeln('')
-    term.writeln(`\x1b[90m  当前连接: ${currentConn ? currentConn.name : '未连接'}\x1b[0m`)
-    term.writeln('')
-    term.write('\x1b[32m❯ \x1b[0m')
-
-    terminalInstance.current = term
-
-    const ro = new ResizeObserver(() => fitAddon.fit())
-    ro.observe(terminalRef.current)
-
-    return () => {
-      ro.disconnect()
-      term.dispose()
-      terminalInstance.current = null
+    const state: ConnectionTerminalState = {
+      terminal: term,
+      fitAddon,
+      container,
+      session: null,
+      pollTimer: null,
+      onDataDisposable: null,
+      disconnected: false,
+      connecting: true,
+      resizeObserver: null,
+      lastSentSize: { cols: term.cols, rows: term.rows },
     }
-  }, [colors, currentConn])
+    terminalStates.current.set(connectionId, state)
 
-  // 如果没有连接，显示连接界面
+    // ResizeObserver：监听容器尺寸变化，仅在尺寸实际变化时发送 resize
+    // position:absolute + inset:0 → 所有容器始终跟随 wrapper 尺寸
+    // visibility 切换不会触发 resize（尺寸不变），避免切换时多余 prompt
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
+    const ro = new ResizeObserver(() => {
+      if (resizeTimer) return
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null
+        if (!state.session) return
+        fitAddon.fit()
+        if (term.cols > 0 && term.rows > 0) {
+          const { cols, rows } = term
+          // 尺寸未变时跳过，避免重复 resize 导致 shell 重绘 prompt
+          if (cols === state.lastSentSize.cols && rows === state.lastSentSize.rows) return
+          state.lastSentSize = { cols, rows }
+          resizeTerminal({ sessionId: state.session.sessionId, cols, rows }).catch(() => {})
+        }
+      }, 300)
+    })
+    ro.observe(container)
+    state.resizeObserver = ro
+
+    try {
+      const res = await openTerminal({
+        connectionId,
+        cols: term.cols,
+        rows: term.rows,
+      })
+
+      if (res.code !== '0000' || !res.data) {
+        term.writeln(`\x1b[31m打开终端失败: ${res.info}\x1b[0m`)
+        state.connecting = false
+        return
+      }
+
+      const { sessionId, initialOutput } = res.data!
+      state.session = { sessionId, connectionId }
+
+      // 显示初始输出
+      if (initialOutput) {
+        term.write(initialOutput)
+      }
+
+      // 监听用户输入
+      state.onDataDisposable = term.onData((data) => {
+        if (state.disconnected || !state.session) return
+
+        // 输入缓冲：积攒字符后批量发送，减少网络往返
+        if (!state.inputBuffer) {
+          state.inputBuffer = []
+          state.inputFlushTimer = setTimeout(() => {
+            if (state.inputBuffer && state.session && !state.disconnected) {
+              const input = state.inputBuffer.join('')
+              writeInput({ sessionId: state.session.sessionId, input })
+                .catch((err) => {
+                  term.writeln('\r\n\x1b[31m输入发送失败\x1b[0m')
+                  console.error('writeInput error:', err)
+                })
+            }
+            state.inputBuffer = null
+            state.inputFlushTimer = null
+          }, 10) // 10ms 内积攒字符后批量发送
+        }
+        state.inputBuffer.push(data)
+      })
+
+      // 启动输出轮询
+      startPolling(state)
+    } catch (err: any) {
+      term.writeln(`\x1b[31m连接错误: ${err.message || '未知错误'}\x1b[0m`)
+    } finally {
+      state.connecting = false
+    }
+  }, [createTerminalInstance, destroyTerminal, startPolling])
+
+  /**
+   * 切换终端显示：visibility + z-index
+   * 
+   * 关键：用 visibility:hidden 代替 display:none
+   * - visibility:hidden 不改变元素尺寸 → xterm canvas 尺寸不变 → 不触发 ResizeObserver
+   * - display:none 让元素尺寸归零 → 恢复时 canvas 重建 → 闪烁 + ResizeObserver 触发 + shell 重绘 prompt
+   */
+  useEffect(() => {
+    activeConnectionIdRef.current = currentConnectionId
+    terminalStates.current.forEach((state, connId) => {
+      const isActive = connId === currentConnectionId
+      state.container.style.visibility = isActive ? 'visible' : 'hidden'
+      state.container.style.zIndex = isActive ? '1' : '0'
+      // 活跃终端：聚焦，确保键盘输入立即生效
+      if (isActive && state.session && !state.disconnected) {
+        requestAnimationFrame(() => {
+          state.terminal.focus()
+        })
+      }
+    })
+  }, [currentConnectionId])
+
+  /** 监听连接状态变化 */
+  useEffect(() => {
+    if (!currentConn) return
+
+    const isConnected = currentConn.status === ConnectionStatus.CONNECTED
+    const state = terminalStates.current.get(currentConn.id)
+
+    if (isConnected) {
+      // 已连接：创建或恢复终端
+      if (!state) {
+        openTerminalSession(currentConn.id)
+      } else if (state.disconnected) {
+        // 断开后再连接 → 销毁旧终端，重新创建（清空日志）
+        destroyTerminal(currentConn.id)
+        openTerminalSession(currentConn.id)
+      }
+      // 如果已有活跃终端（切换回来），什么都不做，日志保留
+    } else {
+      // 未连接/断开/失败：销毁终端，清空日志
+      if (state) {
+        destroyTerminal(currentConn.id)
+      }
+    }
+  }, [currentConn, openTerminalSession, destroyTerminal])
+
+  /** 组件卸载：清理所有终端 */
+  useEffect(() => {
+    return () => {
+      terminalStates.current.forEach((_, connId) => {
+        destroyTerminal(connId)
+      })
+    }
+  }, [destroyTerminal])
+
+  /** 重新连接（销毁旧终端，清空日志，重新打开） */
+  const handleReconnect = useCallback((connectionId: string) => {
+    destroyTerminal(connectionId)
+    openTerminalSession(connectionId)
+  }, [destroyTerminal, openTerminalSession])
+
+  // ===== 渲染 =====
+
+  const currentState = currentConn ? terminalStates.current.get(currentConn.id) : undefined
+
+  // 未选择连接：只显示空状态，不渲染 wrapper（没有终端需要保留）
   if (!currentConn) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center min-w-0" style={{ backgroundColor: colors.bgPrimary }}>
         <div className="text-center">
           <div className="text-6xl mb-4">🖥️</div>
-          <h2 className="text-lg font-medium mb-2" style={{ color: colors.text }}>未连接 SSH 服务器</h2>
-          <p className="text-sm mb-6" style={{ color: colors.textDim }}>请在左侧选择或添加 SSH 连接</p>
-          <button
-            onClick={() => setShowNewConnection(true)}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            style={{ backgroundColor: colors.accent, color: '#fff' }}
-          >
-            + 新建连接
-          </button>
+          <h2 className="text-lg font-medium mb-2" style={{ color: colors.text }}>
+            未连接 SSH 服务器
+          </h2>
+          <p className="text-sm mb-6" style={{ color: colors.textDim }}>
+            请在左侧选择或添加 SSH 连接
+          </p>
         </div>
       </div>
     )
   }
 
+  // 始终渲染终端 wrapper，避免切换时 DOM 卸载导致其他连接的终端容器被销毁
+  // 非 CONNECTED 状态用遮罩层覆盖，而不是替换整个结构
+  const isConnected = currentConn.status === ConnectionStatus.CONNECTED
+
   return (
     <div className="flex-1 flex flex-col min-w-0" style={{ backgroundColor: colors.bgPrimary }}>
-      {/* 终端工具栏 */}
-      <div
-        className="h-9 flex items-center justify-between px-3 border-b flex-shrink-0"
-        style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
-      >
+      {/* 终端工具栏 —— 始终显示 */}
+      <div className="h-9 flex items-center justify-between px-3 border-b flex-shrink-0" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colors.green }} />
-          <span className="text-xs font-medium" style={{ color: colors.text }}>{currentConn.name}</span>
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: isConnected ? colors.green : colors.yellow }} />
+          <span className="text-xs font-medium" style={{ color: colors.text }}>
+            {currentConn.name}
+          </span>
           <span className="text-[10px] font-mono" style={{ color: colors.textDim }}>
             {currentConn.username}@{currentConn.host}:{currentConn.port}
           </span>
+          {currentState?.disconnected && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: colors.red + '20', color: colors.red }}>
+              已断开
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
-          <button
-            className="p-1.5 rounded hover:bg-white/10 transition-colors"
-            style={{ color: colors.textDim }}
-            title="分屏"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-              <line x1="12" y1="3" x2="12" y2="21"></line>
-            </svg>
-          </button>
-          <button
-            className="p-1.5 rounded hover:bg-white/10 transition-colors"
-            style={{ color: colors.textDim }}
-            title="搜索"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-          </button>
-          <button
-            className="p-1.5 rounded hover:bg-white/10 transition-colors"
-            style={{ color: colors.textDim }}
-            title="断开连接"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-              <polyline points="16 17 21 12 16 7"></polyline>
-              <line x1="21" y1="12" x2="9" y2="12"></line>
-            </svg>
-          </button>
+          {currentState?.disconnected ? (
+            <button
+              onClick={() => handleReconnect(currentConn.id)}
+              className="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+              style={{ backgroundColor: colors.green, color: '#ffffff' }}
+            >
+              重新连接
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => currentState?.terminal.clear()}
+                className="p-1.5 rounded hover:bg-white/10 transition-colors"
+                style={{ color: colors.textDim }}
+                title="清屏"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                </svg>
+              </button>
+              <button
+                onClick={async () => {
+                  destroyTerminal(currentConn.id)
+                  await disconnect(currentConn.id)
+                }}
+                className="p-1.5 rounded hover:bg-white/10 transition-colors"
+                style={{ color: colors.textDim }}
+                title="断开连接"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* 终端内容区 */}
-      <div ref={terminalRef} className="flex-1 p-2 overflow-hidden" />
+      {/* 
+        终端容器 —— position:relative 作为定位上下文
+        所有连接的终端容器 position:absolute 堆叠，通过 visibility + z-index 切换
+        visibility:hidden 不改变元素尺寸，避免 xterm canvas 重建导致的闪烁和多余 prompt
+      */}
+      <div className="flex-1 overflow-hidden" style={{ position: 'relative' }}>
+        {/* wrapper 始终存在，避免条件渲染导致 DOM 卸载 */}
+        <div ref={wrapperRef} className="absolute inset-0" />
+
+        {/* 非 CONNECTED 状态：遮罩层覆盖 */}
+        {!isConnected && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center" style={{ backgroundColor: colors.bgPrimary }}>
+            {currentConn.status === ConnectionStatus.CONNECTING && (
+              <div className="text-center">
+                <div className="animate-spin text-4xl mb-4" style={{ color: colors.accent }}>⚙️</div>
+                <p style={{ color: colors.text }}>正在连接 {currentConn.name}...</p>
+              </div>
+            )}
+            {currentConn.status === ConnectionStatus.FAILED && (
+              <div className="text-center">
+                <div className="text-6xl mb-4">❌</div>
+                <h2 className="text-lg font-medium mb-2" style={{ color: colors.red }}>连接失败</h2>
+                <p className="text-sm mb-6" style={{ color: colors.textDim }}>
+                  {currentConn.name} 无法连接
+                </p>
+                <button
+                  onClick={() => connect(currentConn.id)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{ backgroundColor: colors.accent, color: '#ffffff' }}
+                >
+                  重试连接
+                </button>
+              </div>
+            )}
+            {currentConn.status === ConnectionStatus.DISCONNECTED && (
+              <div className="text-center">
+                <div className="text-6xl mb-4">🔌</div>
+                <h2 className="text-lg font-medium mb-2" style={{ color: colors.text }}>
+                  {currentConn.name}
+                </h2>
+                <p className="text-sm mb-2" style={{ color: colors.textDim }}>
+                  {currentConn.username}@{currentConn.host}:{currentConn.port}
+                </p>
+                <p className="text-sm mb-6" style={{ color: colors.textDim }}>
+                  点击下方按钮建立 SSH 连接
+                </p>
+                <button
+                  onClick={() => connect(currentConn.id)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{ backgroundColor: colors.accent, color: '#ffffff' }}
+                >
+                  连接服务器
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 断连提示 */}
+      {currentState?.disconnected && (
+        <div className="p-3 border-t flex items-center justify-between" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
+          <span className="text-xs" style={{ color: colors.red }}>
+            ⚠️ 终端连接已断开
+          </span>
+          <button
+            onClick={() => handleReconnect(currentConn.id)}
+            className="px-3 py-1 rounded text-xs font-medium transition-colors"
+            style={{ backgroundColor: colors.accent, color: '#ffffff' }}
+          >
+            重新连接
+          </button>
+        </div>
+      )}
     </div>
   )
 }
