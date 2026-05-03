@@ -60,16 +60,18 @@ export function chatStream(
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (err: string) => void,
+  terminalSessionId?: string | null,
 ): () => void {
   const baseUrl = getBaseUrl()
   const url = `${baseUrl}/api/v1/chat_stream`
 
   const controller = new AbortController()
 
+
   fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ agentId, userId, sessionId, message }),
+    body: JSON.stringify({ agentId, userId, sessionId, message, terminalSessionId }),
     signal: controller.signal,
   })
     .then((res) => {
