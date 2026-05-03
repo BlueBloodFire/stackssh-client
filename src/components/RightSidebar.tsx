@@ -44,7 +44,12 @@ interface RightSidebarProps {
 
 export function RightSidebar({ width = 400 }: RightSidebarProps) {
   const { colors } = useThemeStore()
-  const { sessions, currentSessionId, inputText, setInputText, addMessage, isLoading, setLoading, createSession } = useAgentStore()
+  const { sessions, currentSessionId, inputText, setInputText, addMessage, isLoading, setLoading, createSession, agents, currentAgentId, fetchAgents, setCurrentAgentId } = useAgentStore()
+
+  // 启动时加载智能体列表
+  useEffect(() => {
+    fetchAgents()
+  }, [])
 
   const currentSession = currentSessionId ? sessions.get(currentSessionId) : null
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -357,11 +362,38 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
 
         {/* 底部状态栏：模型选择 + 发送模式 */}
         <div className="flex items-center mt-2 text-[11px]" style={{ color: colors.textDim }}>
-          {/* 左侧：模型选择器 */}
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors hover:bg-white/5" style={{ backgroundColor: colors.bgTertiary }}>
-            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colors.green }} />
-            <span className="font-medium truncate max-w-[100px]" style={{ color: colors.textSecondary }}>gpt-4.1</span>
-            <svg className="w-3 h-3 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          {/* 左侧：智能体选择器 */}
+          <div
+            className="relative"
+            style={{ zIndex: 10 }}
+          >
+            <select
+              value={currentAgentId || ''}
+              onChange={(e) => setCurrentAgentId(e.target.value)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors appearance-none pr-6"
+              style={{
+                backgroundColor: colors.bgTertiary,
+                color: colors.textSecondary,
+                fontSize: '11px',
+                border: 'none',
+              }}
+            >
+              {agents.length === 0 && <option value="">加载中...</option>}
+              {agents.map((agent) => (
+                <option key={agent.agentId} value={agent.agentId}>
+                  {agent.agentName}
+                </option>
+              ))}
+            </select>
+            {/* 下拉箭头 */}
+            <svg
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ width: 12, height: 12, color: colors.textSecondary, opacity: 0.6 }}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </div>

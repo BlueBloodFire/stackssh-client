@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { AgentMessage } from '../types'
+import * as agentApi from '../api/agent'
+import type { AiAgentConfigDTO } from '../api/agent'
 
 interface AgentStore {
   // 当前会话 ID
@@ -10,6 +12,12 @@ interface AgentStore {
   inputText: string
   // 是否等待响应
   isLoading: boolean
+
+  // ===== 智能体列表 =====
+  agents: AiAgentConfigDTO[]
+  currentAgentId: string | null
+  fetchAgents: () => Promise<void>
+  setCurrentAgentId: (id: string) => void
 
   // 设置当前会话
   setCurrentSession: (id: string | null) => void
@@ -28,6 +36,20 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   sessions: new Map(),
   inputText: '',
   isLoading: false,
+
+  agents: [],
+  currentAgentId: null,
+
+  fetchAgents: async () => {
+    const list = await agentApi.queryAgentList()
+    set({ agents: list })
+    // 自动选中第一个
+    if (list.length > 0 && !get().currentAgentId) {
+      set({ currentAgentId: list[0].agentId })
+    }
+  },
+
+  setCurrentAgentId: (id) => set({ currentAgentId: id }),
 
   setCurrentSession: (id) => set({ currentSessionId: id }),
 
