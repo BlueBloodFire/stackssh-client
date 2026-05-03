@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useAgentStore } from '../stores/agentStore'
+import * as agentApi from '../api/agent'
 import type { AgentMessage } from '../types'
 
 // ===== 消息气泡 =====
@@ -44,7 +45,7 @@ interface RightSidebarProps {
 
 export function RightSidebar({ width = 400 }: RightSidebarProps) {
   const { colors } = useThemeStore()
-  const { sessions, currentSessionId, inputText, setInputText, addMessage, isLoading, setLoading, createSession, agents, currentAgentId, fetchAgents, setCurrentAgentId } = useAgentStore()
+  const { sessions, currentSessionId, inputText, setInputText, addMessage, updateMessage, isLoading, setLoading, newConversation, agents, currentAgentId, fetchAgents, setCurrentAgentId, createServerSession } = useAgentStore()
 
   // 启动时加载智能体列表
   useEffect(() => {
@@ -74,14 +75,22 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
   }, [inputText])
 
   const handleSend = async () => {
-    if (!inputText.trim() || !currentSessionId || isLoading) return
+    if (!inputText.trim() || isLoading) return
+    if (!currentAgentId) return
+
+    // 无会话则先创建
+    if (!currentSessionId) {
+      await createServerSession(currentAgentId)
+    }
+    const sessionId = currentSessionId!
+
     const userMessage: AgentMessage = {
       id: `msg_${Date.now()}`,
       role: 'user',
       content: inputText,
       timestamp: Date.now(),
     }
-    addMessage(currentSessionId, userMessage)
+    addMessage(sessionId, userMessage)
     setInputText('')
     setLoading(true)
 
@@ -91,16 +100,40 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
       inputHeightRef.current = 120
     }
 
-    setTimeout(() => {
-      const assistantMessage: AgentMessage = {
-        id: `msg_${Date.now()}`,
-        role: 'assistant',
-        content: `已收到: ${userMessage.content}\n\n这是模拟响应。`,
-        timestamp: Date.now(),
-      }
-      if (currentSessionId) addMessage(currentSessionId, assistantMessage)
-      setLoading(false)
-    }, 1000)
+    // 流式响应
+    let assistantId = `msg_${Date.now() + 1}`
+    const assistantMessage: AgentMessage = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+    }
+    addMessage(sessionId, assistantMessage)
+
+    let fullContent = ''
+
+    const abort = agentApi.chatStream(
+      currentAgentId,
+      'default',
+      sessionId,
+      inputText,
+      (chunk: string) => {
+        fullContent += chunk
+        updateMessage(sessionId, assistantId, fullContent)
+      },
+      () => {
+        setLoading(false)
+      },
+      (err: string) => {
+        console.error('[chatStream] error:', err)
+        updateMessage(sessionId, assistantId, `请求失败: ${err}`)
+        setLoading(false)
+      },
+    )
+
+    // 保存 abort 供需要时取消
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    void abort
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -111,7 +144,7 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
     }
   }
 
-  const canSend = inputText.trim() && currentSession && !isLoading
+  const canSend = inputText.trim() && currentAgentId && !isLoading
 
   return (
     <div
@@ -244,7 +277,7 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
         {/* 右侧：新建 + 历史 */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => createSession()}
+            onClick={() => currentAgentId && newConversation(currentAgentId)}
             className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all"
             style={{
               backgroundColor: colors.bgTertiary,
