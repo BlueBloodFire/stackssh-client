@@ -1,13 +1,32 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useAgentStore } from '../stores/agentStore'
+import { useConnectionStore } from '../stores/connectionStore'
+import { useSshAgentStore } from '../stores/sshAgentStore'
 import * as agentApi from '../api/agent'
 import type { AgentMessage } from '../types'
+import { ConnectionStatus } from '../types'
 
 // ===== 消息气泡 =====
 function MessageBubble({ message }: { message: AgentMessage }) {
   const { colors } = useThemeStore()
   const isUser = message.role === 'user'
+
+  const formatMarkdown = (text: string): string => {
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+    // 代码块 - 使用主题色
+    html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_match, _lang, code) => {
+      return `<pre style="margin:6px 0;padding:10px;border-radius:6px;overflow-x:auto;font-size:11px;font-family:'JetBrains Mono',monospace;background:${colors.bgSecondary};color:${colors.text};border:1px solid ${colors.border}"><code>${code.trim()}</code></pre>`
+    })
+    // 行内代码 - 使用主题色
+    html = html.replace(/`([^`]+)`/g, `<code style="padding:1px 5px;border-radius:3px;font-size:11px;font-family:monospace;background:${colors.bgHover};color:${colors.accent};border:1px solid ${colors.border}">$1</code>`)
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    html = html.replace(/\n/g, '<br/>')
+    return html
+  }
 
   return (
     <div className={`px-4 py-1.5 ${isUser ? 'flex justify-end' : 'flex justify-start'}`}>
@@ -24,33 +43,48 @@ function MessageBubble({ message }: { message: AgentMessage }) {
   )
 }
 
-function formatMarkdown(text: string): string {
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_match, _lang, code) => {
-    return `<pre style="margin:6px 0;padding:10px;border-radius:6px;overflow-x:auto;font-size:11px;font-family:'JetBrains Mono',monospace;background:#0d1117;color:#c9d1d9;border:1px solid #30363d"><code>${code.trim()}</code></pre>`
-  })
-  html = html.replace(/`([^`]+)`/g, '<code style="padding:1px 5px;border-radius:3px;font-size:11px;font-family:monospace;background:#1e1e1e40;color:#79c0ff">$1</code>')
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/\n/g, '<br/>')
-  return html
-}
+// ServerTag 和 ConnectionSelectorModal 已移除（改为自动绑定）
 
 // ===== 右侧 AI 面板 =====
 interface RightSidebarProps {
   width?: number
+  /** 当前激活的终端会话 ID */
+  activeTerminalSessionId?: string | null
 }
 
-export function RightSidebar({ width = 400 }: RightSidebarProps) {
+export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSidebarProps) {
   const { colors } = useThemeStore()
-  const { sessions, currentSessionId, inputText, setInputText, addMessage, updateMessage, isLoading, setLoading, newConversation, agents, currentAgentId, fetchAgents, setCurrentAgentId, createServerSession } = useAgentStore()
+  const {
+    sessions,
+    currentSessionId,
+    inputText,
+    setInputText,
+    addMessage,
+    updateMessage,
+    isLoading,
+    setLoading,
+    newConversation,
+    agents,
+    currentAgentId,
+    fetchAgents,
+    setCurrentAgentId,
+    createServerSession,
+  } = useAgentStore()
+
+  const { connections, currentConnectionId } = useConnectionStore()
+  const {
+    activeBinding,
+    terminalSelection,
+    showAddToChatHint,
+    bindTerminal,
+    clearTerminalSelection,
+    formatServerContext,
+  } = useSshAgentStore()
 
   // 启动时加载智能体列表
   useEffect(() => {
     fetchAgents()
-  }, [])
+  }, [fetchAgents])
 
   const currentSession = currentSessionId ? sessions.get(currentSessionId) : null
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -58,11 +92,12 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
   const [isFocused, setIsFocused] = useState(false)
   const inputHeightRef = useRef<number>(120)
 
+  // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [currentSession?.messages, isLoading])
 
-  // 自动调整输入框高度（只增不减）
+  // 自动调整输入框高度
   useEffect(() => {
     if (textareaRef.current) {
       const scrollHeight = textareaRef.current.scrollHeight
@@ -74,6 +109,101 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
     }
   }, [inputText])
 
+  // ===== 自动绑定当前 SSH 连接（改进版：连接即对话） =====
+  useEffect(() => {
+    const autoBindCurrentConnection = async () => {
+      // 1. 没有终端会话，不绑定
+      if (!activeTerminalSessionId) return
+
+      // 2. 已绑定且是同一个终端会话，不重复绑定
+      if (activeBinding?.terminalSessionId === activeTerminalSessionId) return
+
+      // 3. 找到当前连接的服务器
+      const connection = currentConnectionId
+        ? connections.find((c) => c.id === currentConnectionId)
+        : connections.find((c) => c.status === ConnectionStatus.CONNECTED)
+
+      if (!connection || connection.status !== ConnectionStatus.CONNECTED) return
+
+      // 4. 无会话则先创建
+      if (!currentSessionId && currentAgentId) {
+        await createServerSession(currentAgentId)
+      }
+
+      const sessionId = useAgentStore.getState().currentSessionId
+      if (!sessionId) return
+
+      // 5. 执行绑定
+      const success = await bindTerminal(
+        sessionId,
+        activeTerminalSessionId,
+        {
+          connectionId: connection.id,
+          connectionName: connection.name,
+          host: connection.host,
+          port: connection.port,
+          username: connection.username,
+        }
+      )
+
+      if (success) {
+        console.log('[RightSidebar] Auto-bound to:', connection.name)
+      }
+    }
+
+    autoBindCurrentConnection()
+  }, [
+    activeTerminalSessionId,
+    activeBinding,
+    currentConnectionId,
+    connections,
+    currentAgentId,
+    bindTerminal,
+    createServerSession,
+  ])
+
+  // ===== 手动切换服务器（下拉选择） =====
+  const handleSwitchServer = useCallback(
+    async (connectionId: string) => {
+      const connection = connections.find((c) => c.id === connectionId)
+      if (!connection || connection.status !== ConnectionStatus.CONNECTED) return
+
+      if (!activeTerminalSessionId) return
+
+      const sessionId = currentSessionId || (currentAgentId ? (await createServerSession(currentAgentId), useAgentStore.getState().currentSessionId) : null)
+      if (!sessionId) return
+
+      // 绑定新服务器
+      const success = await bindTerminal(sessionId, activeTerminalSessionId, {
+        connectionId: connection.id,
+        connectionName: connection.name,
+        host: connection.host,
+        port: connection.port,
+        username: connection.username,
+      })
+
+      if (success) {
+        const systemMessage: AgentMessage = {
+          id: `msg_${Date.now()}`,
+          role: 'system',
+          content: `已切换服务器：${connection.name} (${connection.username}@${connection.host}:${connection.port})`,
+          timestamp: Date.now(),
+        }
+        addMessage(sessionId, systemMessage)
+      }
+    },
+    [
+      connections,
+      activeTerminalSessionId,
+      currentSessionId,
+      currentAgentId,
+      bindTerminal,
+      createServerSession,
+      addMessage,
+    ]
+  )
+
+  // ===== 处理发送消息 =====
   const handleSend = async () => {
     if (!inputText.trim() || isLoading) return
     if (!currentAgentId) return
@@ -84,10 +214,25 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
     }
     const sessionId = currentSessionId!
 
+    // 构建消息内容
+    let messageContent = inputText
+
+    // 如果有终端选中内容，添加到消息
+    if (terminalSelection) {
+      messageContent = `${inputText}\n\n---\n终端选中内容：\n\`\`\`\n${terminalSelection.text}\n\`\`\``
+      clearTerminalSelection()
+    }
+
+    // 如果有绑定的服务器，添加上下文
+    if (activeBinding) {
+      const serverContext = formatServerContext(activeBinding)
+      messageContent = `${serverContext}\n\n${messageContent}`
+    }
+
     const userMessage: AgentMessage = {
       id: `msg_${Date.now()}`,
       role: 'user',
-      content: inputText,
+      content: inputText, // 显示原始输入
       timestamp: Date.now(),
     }
     addMessage(sessionId, userMessage)
@@ -116,7 +261,7 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
       currentAgentId,
       'default',
       sessionId,
-      inputText,
+      messageContent, // 发送带上下文的消息
       (chunk: string) => {
         fullContent += chunk
         updateMessage(sessionId, assistantId, fullContent)
@@ -129,15 +274,13 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
         updateMessage(sessionId, assistantId, `请求失败: ${err}`)
         setLoading(false)
       },
+      activeTerminalSessionId // 传递终端会话ID
     )
 
-    // 保存 abort 供需要时取消
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     void abort
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Enter 发送，Shift+Enter 换行
     if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault()
       handleSend()
@@ -148,11 +291,67 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
 
   return (
     <div
-      className="flex flex-col h-full flex-shrink-0"
+      className="flex flex-col h-full flex-shrink-0 overflow-hidden"
       style={{ width, backgroundColor: colors.bgPrimary }}
     >
+      {/* ===== 服务器状态栏（可切换） ===== */}
+      <div
+        className="flex items-center justify-between px-4 py-2 border-b"
+        style={{
+          backgroundColor: activeBinding ? `${colors.accent}10` : colors.bgSecondary,
+          borderColor: colors.border,
+        }}
+      >
+        <div className="flex items-center gap-2">
+          {activeBinding ? (
+            <>
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: '#22c55e', animation: 'pulse 2s infinite' }}
+              />
+              <span className="text-[11px]" style={{ color: colors.textSecondary }}>
+                当前服务器：<b style={{ color: colors.text }}>{activeBinding.connectionName}</b>
+                <span style={{ color: colors.textDim }}> ({activeBinding.serverInfo.username}@{activeBinding.serverInfo.host})</span>
+              </span>
+            </>
+          ) : (
+            <>
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: colors.textDim }}
+              />
+              <span className="text-[11px]" style={{ color: colors.textDim }}>
+                未连接服务器 — 连接 SSH 后自动关联
+              </span>
+            </>
+          )}
+        </div>
+        {/* 服务器切换下拉 */}
+        {connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length > 0 && (
+          <select
+            value={activeBinding?.connectionId || ''}
+            onChange={(e) => handleSwitchServer(e.target.value)}
+            className="text-[11px] px-2 py-1 rounded cursor-pointer appearance-none pr-6"
+            style={{
+              backgroundColor: colors.bgTertiary,
+              color: colors.textSecondary,
+              border: `1px solid ${colors.border}`,
+            }}
+          >
+            <option value="" disabled>切换服务器</option>
+            {connections
+              .filter((c) => c.status === ConnectionStatus.CONNECTED)
+              .map((conn) => (
+                <option key={conn.id} value={conn.id}>
+                  {conn.name}
+                </option>
+              ))}
+          </select>
+        )}
+      </div>
+
       {/* ===== 消息区 ===== */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         {!currentSession ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 px-6">
             <img src="/logo.png" alt="WaLiSSH" className="w-14 h-14 mb-2 opacity-60 rounded" />
@@ -217,7 +416,38 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
         )}
       </div>
 
-      {/* ===== 拖拽手柄（调整输入框高度）===== */}
+      {/* ===== 终端选中提示 ===== */}
+      {showAddToChatHint && terminalSelection && (
+        <div
+          className="mx-4 mb-2 px-3 py-2 rounded-lg text-[11px] flex items-center justify-between"
+          style={{
+            backgroundColor: colors.bgTertiary,
+            border: `1px dashed ${colors.accent}60`,
+            color: colors.textSecondary,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span className="truncate max-w-[200px]">
+              已选中 {terminalSelection.text.length} 个字符
+            </span>
+          </div>
+          <button
+            onClick={clearTerminalSelection}
+            className="p-1 rounded hover:bg-black/10"
+            style={{ color: colors.textDim }}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* ===== 拖拽手柄 ===== */}
       <div
         className="w-full h-3 cursor-ns-resize select-none flex items-center justify-center transition-colors hover:bg-blue-500/20 flex-shrink-0"
         title="拖拽调整输入框高度"
@@ -259,20 +489,22 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
           borderColor: colors.border,
         }}
       >
-        {/* 左侧：拆解 */}
-        <button
-          className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all"
-          style={{
-            backgroundColor: colors.bgTertiary,
-            color: colors.textSecondary,
-            border: '1px solid transparent',
-          }}
-        >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
-          </svg>
-          拆解
-        </button>
+        {/* 左侧：拆解（移除了手动添加服务器按钮） */}
+        <div className="flex items-center gap-2">
+          <button
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all"
+            style={{
+              backgroundColor: colors.bgTertiary,
+              color: colors.textSecondary,
+              border: '1px solid transparent',
+            }}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+            </svg>
+            拆解
+          </button>
+        </div>
 
         {/* 右侧：新建 + 历史 */}
         <div className="flex items-center gap-2">
@@ -329,10 +561,11 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
+            disabled={isLoading}
             rows={4}
             className="w-full bg-transparent resize-none outline-none text-[13px] leading-relaxed"
             style={{
-              color: colors.text,
+              color: isLoading ? colors.textDim : colors.text,
               minHeight: 120,
               maxHeight: 280,
               padding: '8px 16px 44px 16px',
@@ -374,32 +607,45 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
               </svg>
             </button>
             {/* 发送/停止 */}
-            <button
-              onClick={handleSend}
-              disabled={!canSend}
-              className="p-1.5 rounded-md transition-colors"
-              style={{
-                backgroundColor: canSend ? colors.accent : colors.bgTertiary,
-                color: canSend ? '#fff' : colors.textSecondary,
-                opacity: canSend ? 1 : 0.5,
-                cursor: canSend ? 'pointer' : 'not-allowed',
-              }}
-              title="发送"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-              </svg>
-            </button>
+            {isLoading ? (
+              <button
+                onClick={() => {/* 取消功能待实现 */}}
+                className="p-1.5 rounded-md transition-colors"
+                style={{
+                  backgroundColor: colors.red,
+                  color: '#fff',
+                }}
+                title="停止"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!canSend}
+                className="p-1.5 rounded-md transition-colors"
+                style={{
+                  backgroundColor: canSend ? colors.accent : colors.bgTertiary,
+                  color: canSend ? '#fff' : colors.textSecondary,
+                  opacity: canSend ? 1 : 0.5,
+                  cursor: canSend ? 'pointer' : 'not-allowed',
+                }}
+                title="发送"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
 
         {/* 底部状态栏：模型选择 + 发送模式 */}
         <div className="flex items-center mt-2 text-[11px]" style={{ color: colors.textDim }}>
           {/* 左侧：智能体选择器 */}
-          <div
-            className="relative"
-            style={{ zIndex: 10 }}
-          >
+          <div className="relative" style={{ zIndex: 10 }}>
             <select
               value={currentAgentId || ''}
               onChange={(e) => setCurrentAgentId(e.target.value)}
@@ -438,6 +684,8 @@ export function RightSidebar({ width = 400 }: RightSidebarProps) {
           <span>Enter 发送 · Shift+Enter 换行</span>
         </div>
       </div>
+
+      {/* 连接选择器弹窗已移除（改为自动绑定） */}
     </div>
   )
 }

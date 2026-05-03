@@ -1,10 +1,11 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { useSshAgentStore } from '../stores/sshAgentStore'
 import { openTerminal, writeInput, readOutput, resizeTerminal, closeTerminal } from '../api/terminal'
 import { ConnectionStatus } from '../types'
 
@@ -18,18 +19,15 @@ interface TerminalSession {
 interface ConnectionTerminalState {
   terminal: Terminal
   fitAddon: FitAddon
-  container: HTMLDivElement          // 每个连接独立的 DOM 容器
+  container: HTMLDivElement
   session: TerminalSession | null
   pollTimer: ReturnType<typeof setInterval> | null
   onDataDisposable: { dispose(): void } | null
   disconnected: boolean
-  connecting: boolean                 // 防止并发 openTerminal
+  connecting: boolean
   resizeObserver: ResizeObserver | null
-  /** 上次发送给后端的 cols/rows，用于去重避免重复 resize 导致 shell 重绘 prompt */
   lastSentSize: { cols: number; rows: number }
-  /** 输入缓冲：积攒字符后批量发送，减少网络往返 */
   inputBuffer: string[] | null
-  /** 输入 flush 定时器 */
   inputFlushTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -39,33 +37,62 @@ const POLL_INTERVAL = 50
 /** 后端返回的断连标记 */
 const DISCONNECT_MARKER = '[连接已断开]'
 
-/** 轮询连续错误阈值，超过则判定为断开 */
+/** 轮询连续错误阈值 */
 const POLL_ERROR_THRESHOLD = 3
 
 /** 重连退避间隔（ms） */
 const RECONNECT_INTERVAL = 5000
 
-export function TerminalPanel() {
+/** 右键菜单位置 */
+interface ContextMenuPos {
+  x: number
+  y: number
+}
+
+export function TerminalPanel({
+  onTerminalSessionChange,
+}: {
+  /** 终端会话变化回调 */
+  onTerminalSessionChange?: (sessionId: string | null) => void
+}) {
   const { colors } = useThemeStore()
   const { currentConnectionId, connections, connect, disconnect } = useConnectionStore()
+  const { setTerminalSelection } = useSshAgentStore()
 
-  /** connectionId → 终端状态（每个连接独立 Terminal 实例，切换时保留日志） */
   const terminalStates = useRef<Map<string, ConnectionTerminalState>>(new Map())
-  /** 外层容器，承载所有终端容器 */
   const wrapperRef = useRef<HTMLDivElement>(null)
-  /** 当前活跃连接 ID，用于 ResizeObserver 判断是否发送 resize */
   const activeConnectionIdRef = useRef<string | null>(null)
+
+  // 右键菜单状态
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean
+    pos: ContextMenuPos
+    selectedText: string
+  }>({ visible: false, pos: { x: 0, y: 0 }, selectedText: '' })
 
   const currentConn = connections.find((c) => c.id === currentConnectionId)
 
-  /** 创建 xterm Terminal 实例（共享配置） */
+  /** 获取当前终端会话 ID */
+  const getCurrentTerminalSessionId = useCallback(() => {
+    if (!currentConnectionId) return null
+    const state = terminalStates.current.get(currentConnectionId)
+    return state?.session?.sessionId || null
+  }, [currentConnectionId])
+
+  /** 通知父组件终端会话变化 */
+  useEffect(() => {
+    const sessionId = getCurrentTerminalSessionId()
+    onTerminalSessionChange?.(sessionId)
+  }, [currentConnectionId, getCurrentTerminalSessionId, onTerminalSessionChange])
+
+  /** 创建 xterm Terminal 实例 */
   const createTerminalInstance = useCallback(() => {
     return new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
-      scrollback: 100000,  // 不限制存储，保留完整操作日志
+      scrollback: 100000,
       theme: {
         background: colors.bgPrimary,
         foreground: colors.text,
@@ -110,7 +137,6 @@ export function TerminalPanel() {
     state.disconnected = true
     stopPolling(state)
 
-    // 更新前端连接状态
     const conn = connections.find((c) => c.id === state.session!.connectionId)
     if (conn && conn.status === ConnectionStatus.CONNECTED) {
       disconnect(conn.id).catch(() => {})
@@ -129,12 +155,10 @@ export function TerminalPanel() {
       try {
         const res = await readOutput(sessionId)
 
-        // 成功响应
         if (res.code === '0000') {
           errorCount = 0
           if (res.data?.output) {
             const output = res.data.output
-            // 检测后端断连标记
             if (output.includes(DISCONNECT_MARKER)) {
               markDisconnected(state, '连接已断开')
               return
@@ -144,19 +168,16 @@ export function TerminalPanel() {
           return
         }
 
-        // 会话不存在/已关闭 → 立即断开
         if (res.code === 'ILLEGAL_PARAMETER' && res.info?.includes('不存在')) {
           markDisconnected(state, '会话已失效')
           return
         }
 
-        // 其他错误码 → 累计错误计数
         errorCount++
         if (errorCount >= POLL_ERROR_THRESHOLD) {
           markDisconnected(state, '连接异常')
         }
       } catch {
-        // 网络异常 → 累计错误计数
         errorCount++
         if (errorCount >= POLL_ERROR_THRESHOLD) {
           markDisconnected(state, '网络异常')
@@ -165,34 +186,24 @@ export function TerminalPanel() {
     }, POLL_INTERVAL)
   }, [stopPolling, markDisconnected])
 
-  /** 销毁指定连接的终端（断开/重连时调用，清空日志） */
+  /** 销毁指定连接的终端 */
   const destroyTerminal = useCallback((connectionId: string) => {
     const state = terminalStates.current.get(connectionId)
     if (!state) return
 
-    // 停止轮询
     stopPolling(state)
 
-    // 清理输入缓冲 flush 定时器
     if (state.inputFlushTimer) {
       clearTimeout(state.inputFlushTimer)
     }
 
-    // 关闭后端会话
     if (state.session) {
       closeTerminal(state.session.sessionId).catch(() => {})
     }
 
-    // 释放输入监听
     state.onDataDisposable?.dispose()
-
-    // 释放 ResizeObserver
     state.resizeObserver?.disconnect()
-
-    // 销毁 xterm 实例
     state.terminal.dispose()
-
-    // 移除 DOM 容器
     state.container.remove()
 
     terminalStates.current.delete(connectionId)
@@ -200,22 +211,15 @@ export function TerminalPanel() {
 
   /** 创建并打开终端会话 */
   const openTerminalSession = useCallback(async (connectionId: string) => {
-    // 如果已有终端状态，检查是否正在连接中
     const existingState = terminalStates.current.get(connectionId)
     if (existingState && existingState.connecting) return
-
-    // 如果已有活跃会话（切换回来的场景），不需要重新打开
     if (existingState && existingState.session && !existingState.disconnected) return
-
-    // 如果已断开（重连场景），先销毁旧终端清空日志
     if (existingState && existingState.disconnected) {
       destroyTerminal(connectionId)
     }
 
-    // 确保外层容器存在
     if (!wrapperRef.current) return
 
-    // 创建新的终端状态
     const term = createTerminalInstance()
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
@@ -226,11 +230,22 @@ export function TerminalPanel() {
       /* WebGL 不可用时降级 */
     }
 
-    // 创建独立的 DOM 容器 —— position:absolute 堆叠，visibility 切换不会改变尺寸
-    // bottom:24px 让容器比 wrapper 短一截，终端底部自然留出空白，避免 prompt 贴底
     const container = document.createElement('div')
-    container.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:24px;padding:8px;overflow:hidden;'
+    container.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;padding:8px;overflow:hidden;'
     wrapperRef.current.appendChild(container)
+
+    // 添加右键菜单事件
+    container.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      const selection = term.getSelection()
+      if (selection) {
+        setContextMenu({
+          visible: true,
+          pos: { x: e.clientX, y: e.clientY },
+          selectedText: selection,
+        })
+      }
+    })
 
     term.open(container)
     fitAddon.fit()
@@ -246,12 +261,11 @@ export function TerminalPanel() {
       connecting: true,
       resizeObserver: null,
       lastSentSize: { cols: term.cols, rows: term.rows },
+      inputBuffer: null,
+      inputFlushTimer: null,
     }
     terminalStates.current.set(connectionId, state)
 
-    // ResizeObserver：监听容器尺寸变化，仅在尺寸实际变化时发送 resize
-    // position:absolute + inset:0 → 所有容器始终跟随 wrapper 尺寸
-    // visibility 切换不会触发 resize（尺寸不变），避免切换时多余 prompt
     let resizeTimer: ReturnType<typeof setTimeout> | null = null
     const ro = new ResizeObserver(() => {
       if (resizeTimer) return
@@ -261,7 +275,6 @@ export function TerminalPanel() {
         fitAddon.fit()
         if (term.cols > 0 && term.rows > 0) {
           const { cols, rows } = term
-          // 尺寸未变时跳过，避免重复 resize 导致 shell 重绘 prompt
           if (cols === state.lastSentSize.cols && rows === state.lastSentSize.rows) return
           state.lastSentSize = { cols, rows }
           resizeTerminal({ sessionId: state.session.sessionId, cols, rows }).catch(() => {})
@@ -287,35 +300,29 @@ export function TerminalPanel() {
       const { sessionId, initialOutput } = res.data!
       state.session = { sessionId, connectionId }
 
-      // 显示初始输出
       if (initialOutput) {
         term.write(initialOutput)
       }
 
-      // 监听用户输入
       state.onDataDisposable = term.onData((data) => {
         if (state.disconnected || !state.session) return
 
-        // 输入缓冲：积攒字符后批量发送，减少网络往返
         if (!state.inputBuffer) {
           state.inputBuffer = []
           state.inputFlushTimer = setTimeout(() => {
             if (state.inputBuffer && state.session && !state.disconnected) {
               const input = state.inputBuffer.join('')
-              writeInput({ sessionId: state.session.sessionId, input })
-                .catch((err) => {
-                  term.writeln('\r\n\x1b[31m输入发送失败\x1b[0m')
-                  console.error('writeInput error:', err)
-                })
+              writeInput({ sessionId: state.session.sessionId, input }).catch(() => {
+                term.writeln('\r\n\x1b[31m输入发送失败\x1b[0m')
+              })
             }
             state.inputBuffer = null
             state.inputFlushTimer = null
-          }, 10) // 10ms 内积攒字符后批量发送
+          }, 10)
         }
         state.inputBuffer.push(data)
       })
 
-      // 启动输出轮询
       startPolling(state)
     } catch (err: any) {
       term.writeln(`\x1b[31m连接错误: ${err.message || '未知错误'}\x1b[0m`)
@@ -324,20 +331,13 @@ export function TerminalPanel() {
     }
   }, [createTerminalInstance, destroyTerminal, startPolling])
 
-  /**
-   * 切换终端显示：visibility + z-index
-   * 
-   * 关键：用 visibility:hidden 代替 display:none
-   * - visibility:hidden 不改变元素尺寸 → xterm canvas 尺寸不变 → 不触发 ResizeObserver
-   * - display:none 让元素尺寸归零 → 恢复时 canvas 重建 → 闪烁 + ResizeObserver 触发 + shell 重绘 prompt
-   */
+  /** 切换终端显示 */
   useEffect(() => {
     activeConnectionIdRef.current = currentConnectionId
     terminalStates.current.forEach((state, connId) => {
       const isActive = connId === currentConnectionId
       state.container.style.visibility = isActive ? 'visible' : 'hidden'
       state.container.style.zIndex = isActive ? '1' : '0'
-      // 活跃终端：聚焦，确保键盘输入立即生效
       if (isActive && state.session && !state.disconnected) {
         requestAnimationFrame(() => {
           state.terminal.focus()
@@ -354,24 +354,20 @@ export function TerminalPanel() {
     const state = terminalStates.current.get(currentConn.id)
 
     if (isConnected) {
-      // 已连接：创建或恢复终端
       if (!state) {
         openTerminalSession(currentConn.id)
       } else if (state.disconnected) {
-        // 断开后再连接 → 销毁旧终端，重新创建（清空日志）
         destroyTerminal(currentConn.id)
         openTerminalSession(currentConn.id)
       }
-      // 如果已有活跃终端（切换回来），什么都不做，日志保留
     } else {
-      // 未连接/断开/失败：销毁终端，清空日志
       if (state) {
         destroyTerminal(currentConn.id)
       }
     }
   }, [currentConn, openTerminalSession, destroyTerminal])
 
-  /** 组件卸载：清理所有终端 */
+  /** 组件卸载清理 */
   useEffect(() => {
     return () => {
       terminalStates.current.forEach((_, connId) => {
@@ -380,17 +376,45 @@ export function TerminalPanel() {
     }
   }, [destroyTerminal])
 
-  /** 重新连接（销毁旧终端，清空日志，重新打开） */
+  /** 重新连接 */
   const handleReconnect = useCallback((connectionId: string) => {
     destroyTerminal(connectionId)
     openTerminalSession(connectionId)
   }, [destroyTerminal, openTerminalSession])
 
-  // ===== 渲染 =====
+  /** 处理添加到对话 */
+  const handleAddToChat = useCallback(() => {
+    if (contextMenu.selectedText) {
+      setTerminalSelection({
+        text: contextMenu.selectedText,
+        terminalSessionId: getCurrentTerminalSessionId() || '',
+        selectedAt: Date.now(),
+      })
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }))
+  }, [contextMenu.selectedText, getCurrentTerminalSessionId, setTerminalSelection])
+
+  /** 处理复制 */
+  const handleCopy = useCallback(() => {
+    if (contextMenu.selectedText) {
+      navigator.clipboard.writeText(contextMenu.selectedText)
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }))
+  }, [contextMenu.selectedText])
+
+  /** 点击其他地方关闭右键菜单 */
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setContextMenu((prev) => ({ ...prev, visible: false }))
+    }
+    if (contextMenu.visible) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [contextMenu.visible])
 
   const currentState = currentConn ? terminalStates.current.get(currentConn.id) : undefined
 
-  // 未选择连接：只显示空状态，不渲染 wrapper（没有终端需要保留）
   if (!currentConn) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center min-w-0" style={{ backgroundColor: colors.bgPrimary }}>
@@ -407,13 +431,11 @@ export function TerminalPanel() {
     )
   }
 
-  // 始终渲染终端 wrapper，避免切换时 DOM 卸载导致其他连接的终端容器被销毁
-  // 非 CONNECTED 状态用遮罩层覆盖，而不是替换整个结构
   const isConnected = currentConn.status === ConnectionStatus.CONNECTED
 
   return (
     <div className="flex-1 flex flex-col min-w-0" style={{ backgroundColor: colors.bgPrimary }}>
-      {/* 终端工具栏 —— 始终显示 */}
+      {/* 终端工具栏 */}
       <div className="h-9 flex items-center justify-between px-3 border-b flex-shrink-0" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: isConnected ? colors.green : colors.yellow }} />
@@ -470,16 +492,11 @@ export function TerminalPanel() {
         </div>
       </div>
 
-      {/* 
-        终端容器 —— position:relative 作为定位上下文
-        所有连接的终端容器 position:absolute 堆叠，通过 visibility + z-index 切换
-        visibility:hidden 不改变元素尺寸，避免 xterm canvas 重建导致的闪烁和多余 prompt
-      */}
+      {/* 终端容器 */}
       <div className="flex-1 overflow-hidden" style={{ position: 'relative' }}>
-        {/* wrapper 始终存在，避免条件渲染导致 DOM 卸载 */}
         <div ref={wrapperRef} className="absolute inset-0" />
 
-        {/* 非 CONNECTED 状态：遮罩层覆盖 */}
+        {/* 非 CONNECTED 状态：遮罩层 */}
         {!isConnected && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center" style={{ backgroundColor: colors.bgPrimary }}>
             {currentConn.status === ConnectionStatus.CONNECTING && (
@@ -541,6 +558,42 @@ export function TerminalPanel() {
             style={{ backgroundColor: colors.accent, color: '#ffffff' }}
           >
             重新连接
+          </button>
+        </div>
+      )}
+
+      {/* 右键菜单 */}
+      {contextMenu.visible && (
+        <div
+          className="fixed z-50 rounded-lg py-1 shadow-lg border"
+          style={{
+            left: contextMenu.pos.x,
+            top: contextMenu.pos.y,
+            backgroundColor: colors.bgPrimary,
+            borderColor: colors.border,
+            minWidth: '140px',
+          }}
+        >
+          <button
+            onClick={handleAddToChat}
+            className="w-full px-3 py-2 text-left text-[12px] hover:bg-black/5 flex items-center gap-2"
+            style={{ color: colors.text }}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            添加到对话
+          </button>
+          <button
+            onClick={handleCopy}
+            className="w-full px-3 py-2 text-left text-[12px] hover:bg-black/5 flex items-center gap-2"
+            style={{ color: colors.text }}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            复制
           </button>
         </div>
       )}

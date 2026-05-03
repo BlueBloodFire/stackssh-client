@@ -10,6 +10,14 @@ import { useThemeStore } from '../stores/themeStore'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
+/**
+ * MainView V2
+ * 
+ * 集成 SSH 智能体交互功能：
+ * 1. 终端会话变化时通知右侧 AI 面板
+ * 2. 终端选中内容可右键添加到对话
+ * 3. AI 面板自动绑定当前 SSH 连接
+ */
 export function MainView() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sshModalOpen, setSshModalOpen] = useState(false)
@@ -21,6 +29,9 @@ export function MainView() {
   const [terminalVisible, setTerminalVisible] = useState(true)
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [isResizingChat, setIsResizingChat] = useState(false)
+  
+  // 当前激活的终端会话 ID
+  const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
 
   const { colors } = useThemeStore()
 
@@ -77,6 +88,11 @@ export function MainView() {
     document.body.style.color = colors.text
   }, [colors])
 
+  // 处理终端会话变化
+  const handleTerminalSessionChange = useCallback((sessionId: string | null) => {
+    setActiveTerminalSessionId(sessionId)
+  }, [])
+
   return (
     <div className="w-screen h-screen flex flex-col overflow-hidden" style={{ backgroundColor: colors.bgPrimary }}>
       {/* ===== 顶部标题栏 ===== */}
@@ -120,7 +136,7 @@ export function MainView() {
         {/* 中间：终端 */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {terminalVisible ? (
-            <TerminalPanel />
+            <TerminalPanel onTerminalSessionChange={handleTerminalSessionChange} />
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-sm" style={{ color: colors.textDim }}>终端已隐藏 (按 ⌘` 显示)</p>
@@ -141,7 +157,7 @@ export function MainView() {
                 className={`absolute inset-y-0 -left-[3px] -right-[3px] ${isResizingChat ? '' : 'hover:bg-blue-500/30'} rounded-full`}
               />
             </div>
-            <RightSidebar width={chatWidth} />
+            <RightSidebar width={chatWidth} activeTerminalSessionId={activeTerminalSessionId} />
           </>
         )}
       </div>

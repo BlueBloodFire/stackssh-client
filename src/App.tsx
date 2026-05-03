@@ -1,5 +1,5 @@
 import './index.css'
-import { MainViewV2 } from './views/MainViewV2'
+import { MainView } from './views/MainView'
 import { useEffect } from 'react'
 import { useConnectionStore } from './stores/connectionStore'
 
@@ -13,8 +13,8 @@ function App() {
     return () => stopHeartbeat()
   }, [startHeartbeat, stopHeartbeat])
 
-  // 使用 MainViewV2 启用 SSH 智能体交互功能
-  return <MainViewV2 />
+  // 使用 MainView 启用 SSH 智能体交互功能
+  return <MainView />
 }
 
 export default App
