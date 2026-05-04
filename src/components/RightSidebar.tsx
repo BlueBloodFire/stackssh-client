@@ -685,21 +685,23 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
 
           {/* 右下角按钮组 */}
           <div className="absolute right-3 bottom-3 flex items-center gap-1.5">
-            {/* 附件 */}
+            {/* 附件（暂不可用） */}
             <button
-              className="p-1.5 rounded-md transition-colors"
-              style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}
-              title="附件"
+              disabled
+              className="p-1.5 rounded-md cursor-not-allowed"
+              style={{ backgroundColor: colors.bgTertiary, color: colors.textDim, opacity: 0.5 }}
+              title="功能开发中"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
               </svg>
             </button>
-            {/* 图片 */}
+            {/* 图片（暂不可用） */}
             <button
-              className="p-1.5 rounded-md transition-colors"
-              style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}
-              title="上传图片"
+              disabled
+              className="p-1.5 rounded-md cursor-not-allowed"
+              style={{ backgroundColor: colors.bgTertiary, color: colors.textDim, opacity: 0.5 }}
+              title="功能开发中"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
