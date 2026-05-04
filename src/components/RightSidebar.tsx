@@ -5,7 +5,85 @@ import { useConnectionStore } from '../stores/connectionStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
 import * as agentApi from '../api/agent'
 import type { AgentMessage } from '../types'
+import type { ReActStep } from '../api/agent'
 import { ConnectionStatus } from '../types'
+
+// ===== ReAct 步骤渲染 =====
+const STEP_LABELS: Record<string, string> = {
+  thinking: '💭 思考中',
+  tool_call: '⚡ 工具执行',
+  result: '✅ 结果',
+}
+
+const STEP_COLORS: Record<string, string> = {
+  thinking: '#f59e0b',
+  tool_call: '#8b5cf6',
+  result: '#22c55e',
+}
+
+function ReActStepView({ step, colors }: { step: ReActStep; colors: ReturnType<typeof useThemeStore.getState>['colors'] }) {
+  const label = STEP_LABELS[step.stepType] || step.stepType
+  const dotColor = step.status === 'failure' ? '#ef4444' : (STEP_COLORS[step.stepType] || colors.accent)
+
+  return (
+    <div className="flex gap-2 py-1">
+      <div className="flex flex-col items-center flex-shrink-0 pt-1">
+        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }} />
+        {step.stepIndex ? (
+          <div className="w-px flex-1 min-h-[8px]" style={{ backgroundColor: `${colors.border}` }} />
+        ) : null}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-[11px] font-medium" style={{ color: dotColor }}>{label}</span>
+          {step.stepIndex && (
+            <span className="text-[10px]" style={{ color: colors.textDim }}>#{step.stepIndex}</span>
+          )}
+        </div>
+        {/* 工具执行 */}
+        {step.toolName && (
+          <div className="text-[11px] px-2 py-1 rounded mb-0.5" style={{
+            backgroundColor: colors.bgSecondary,
+            border: `1px solid ${colors.border}`,
+            color: colors.accent,
+            fontFamily: 'monospace',
+          }}>
+            {step.toolName}{step.toolParams ? `(${step.toolParams})` : ''}
+          </div>
+        )}
+        {/* 工具结果 */}
+        {step.toolResult && (
+          <pre className="text-[11px] px-2 py-1 rounded mb-0.5 overflow-x-auto" style={{
+            backgroundColor: colors.bgSecondary,
+            border: `1px solid ${colors.border}`,
+            color: colors.text,
+            fontFamily: 'monospace',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+          }}>
+            {step.toolResult.length > 500 ? step.toolResult.slice(0, 500) + '...' : step.toolResult}
+          </pre>
+        )}
+        {/* 普通内容 */}
+        {step.content && step.stepType !== 'result' && (
+          <div className="text-[12px]" style={{ color: colors.textSecondary, whiteSpace: 'pre-wrap' }}>
+            {step.content.length > 300 ? step.content.slice(0, 300) + '...' : step.content}
+          </div>
+        )}
+        {/* 错误 */}
+        {step.error && (
+          <div className="text-[11px] px-2 py-1 rounded" style={{
+            backgroundColor: '#ef444410',
+            border: `1px solid #ef444430`,
+            color: '#ef4444',
+          }}>
+            {step.error}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ===== 消息气泡 =====
 function MessageBubble({ message }: { message: AgentMessage }) {
@@ -26,6 +104,33 @@ function MessageBubble({ message }: { message: AgentMessage }) {
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     html = html.replace(/\n/g, '<br/>')
     return html
+  }
+
+  // ReAct 模式消息：显示步骤时间线
+  if (message.steps && message.steps.length > 0) {
+    return (
+      <div className="px-4 py-1.5 flex justify-start">
+        <div className="w-full max-w-[88%] rounded-lg border" style={{
+          backgroundColor: colors.bgTertiary,
+          borderColor: colors.border,
+          borderRadius: '12px 12px 12px 2px',
+        }}>
+          <div className="px-3 pt-2 pb-1">
+            {message.steps.map((step, i) => (
+              <ReActStepView key={i} step={step} colors={colors} />
+            ))}
+            {/* 最终结果 */}
+            {message.content && (
+              <div className="mt-1 pt-1" style={{ borderTop: `1px solid ${colors.border}` }}>
+                <div className="text-[12px] leading-relaxed" style={{ color: colors.text, whiteSpace: 'pre-wrap' }}
+                  dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -61,6 +166,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     setInputText,
     addMessage,
     updateMessage,
+    updateMessageSteps,
     isLoading,
     setLoading,
     newConversation,
@@ -219,29 +325,39 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
+      steps: [],
     }
     addMessage(sessionId, assistantMessage)
 
     let fullContent = ''
+    const steps: ReActStep[] = []
 
-    const abort = agentApi.chatStream(
+    const abort = agentApi.reactChatStream(
       currentAgentId,
       'default',
       sessionId,
-      messageContent, // 发送带上下文的消息
-      (chunk: string) => {
-        fullContent += chunk
+      messageContent,
+      (step: ReActStep) => {
+        steps.push(step)
+        updateMessageSteps(sessionId, assistantId, steps)
+      },
+      (fullText: string) => {
+        fullContent = fullText
         updateMessage(sessionId, assistantId, fullContent)
       },
-      () => {
+      (finalContent: string) => {
+        if (finalContent) {
+          fullContent = finalContent
+          updateMessage(sessionId, assistantId, fullContent)
+        }
         setLoading(false)
       },
       (err: string) => {
-        console.error('[chatStream] error:', err)
+        console.error('[reactChatStream] error:', err)
         updateMessage(sessionId, assistantId, `请求失败: ${err}`)
         setLoading(false)
       },
-      activeTerminalSessionId || undefined // 传递终端会话ID（无终端时为 undefined）
+      activeTerminalSessionId || undefined
     )
 
     void abort

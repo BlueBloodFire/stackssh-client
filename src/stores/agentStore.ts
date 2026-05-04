@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { AgentMessage } from '../types'
 import * as agentApi from '../api/agent'
-import type { AiAgentConfigDTO } from '../api/agent'
+import type { AiAgentConfigDTO, ReActStep } from '../api/agent'
 
 interface AgentStore {
   // 当前会话 ID（值 = 服务端返回的 sessionId）
@@ -28,6 +28,8 @@ interface AgentStore {
   addMessage: (sessionId: string, message: AgentMessage) => void
   // 更新消息（用于流式追加）
   updateMessage: (sessionId: string, messageId: string, content: string) => void
+  // 更新消息的 ReAct 步骤
+  updateMessageSteps: (sessionId: string, messageId: string, steps: ReActStep[]) => void
   // 设置输入框内容
   setInputText: (text: string) => void
   // 设置加载状态
@@ -97,6 +99,19 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       if (session) {
         const messages = session.messages.map((m) =>
           m.id === messageId ? { ...m, content } : m
+        )
+        sessions.set(sessionId, { ...session, messages })
+      }
+      return { sessions }
+    }),
+
+  updateMessageSteps: (sessionId, messageId, steps) =>
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const session = sessions.get(sessionId)
+      if (session) {
+        const messages = session.messages.map((m) =>
+          m.id === messageId ? { ...m, steps: [...steps] } : m
         )
         sessions.set(sessionId, { ...session, messages })
       }

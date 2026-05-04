@@ -13,12 +13,16 @@ export interface SSHConnection {
   updatedAt: number
 }
 
+import type { ReActStep } from '../api/agent'
+
 // Agent 会话消息
 export interface AgentMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
+  /** ReAct 步骤列表（React 模式下有值） */
+  steps?: ReActStep[]
 }
 
 // Agent 会话
