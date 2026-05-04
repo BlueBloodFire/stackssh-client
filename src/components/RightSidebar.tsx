@@ -201,6 +201,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
   })
   const [showSendModeDropdown, setShowSendModeDropdown] = useState(false)
   const inputHeightRef = useRef<number>(120)
+  const abortRef = useRef<(() => void) | null>(null)
 
   // 平台检测
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
@@ -351,7 +352,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     let fullContent = ''
     const steps: ReActStep[] = []
 
-    const abort = agentApi.reactChatStream(
+    abortRef.current = agentApi.reactChatStream(
       currentAgentId,
       'default',
       sessionId,
@@ -369,20 +370,30 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
           fullContent = finalContent
           updateMessage(sessionId, assistantId, fullContent)
         }
+        abortRef.current = null
         setLoading(false)
       },
       (err: string) => {
         console.error('[reactChatStream] error:', err)
         updateMessage(sessionId, assistantId, `请求失败: ${err}`)
+        abortRef.current = null
         setLoading(false)
       },
       activeTerminalSessionId || undefined
     )
+  }
 
-    void abort
+  const handleStop = () => {
+    if (abortRef.current) {
+      abortRef.current()
+      abortRef.current = null
+      setLoading(false)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // IME 组合输入中不拦截（中文输入法确认字母等场景）
+    if (e.nativeEvent.isComposing) return
     const isModifier = e.metaKey || e.ctrlKey
     // 发送时机：(1) Enter 且无修饰键 且发送模式=Enter  (2) Enter+修饰键 且发送模式=Cmd
     const shouldSend =
@@ -402,12 +413,6 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     if (e.key === 'Enter' && !e.shiftKey && !isModifier) {
       e.preventDefault()
     }
-  }
-
-  const toggleSendMode = () => {
-    const next = !sendOnEnter
-    setSendOnEnter(next)
-    localStorage.setItem('sendOnEnter', String(next))
   }
 
   const selectSendMode = (mode: 'enter' | 'cmd') => {
@@ -712,7 +717,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
             {/* 发送/停止 */}
             {isLoading ? (
               <button
-                onClick={() => {/* 取消功能待实现 */}}
+                onClick={handleStop}
                 className="p-1.5 rounded-md transition-colors"
                 style={{
                   backgroundColor: colors.red,
