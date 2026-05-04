@@ -196,7 +196,26 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isFocused, setIsFocused] = useState(false)
+  const [sendOnEnter, setSendOnEnter] = useState(() => {
+    return localStorage.getItem('sendOnEnter') !== 'false'
+  })
+  const [showSendModeDropdown, setShowSendModeDropdown] = useState(false)
   const inputHeightRef = useRef<number>(120)
+
+  // 平台检测
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+  const currentKeyLabel = isMac ? 'Command + Enter' : 'Ctrl + Enter'
+
+  // 根据模式和平台生成 placeholder
+  const inputPlaceholder = () => {
+    if (sendOnEnter) {
+      return isMac
+        ? '向 WaLiSSH 提问...（Enter 发送 · Command + Enter 换行）'
+        : '向 WaLiSSH 提问...（Enter 发送 · Ctrl + Enter 换行）'
+    } else {
+      return `向 WaLiSSH 提问...（${currentKeyLabel} 发送 · Enter 换行）`
+    }
+  }
 
   // 自动滚动到底部
   useEffect(() => {
@@ -364,10 +383,38 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+    const isModifier = e.metaKey || e.ctrlKey
+    // 发送时机：(1) Enter 且无修饰键 且发送模式=Enter  (2) Enter+修饰键 且发送模式=Cmd
+    const shouldSend =
+      (e.key === 'Enter' && !e.shiftKey && sendOnEnter && !isModifier) ||
+      (e.key === 'Enter' && isModifier && !sendOnEnter)
+    if (shouldSend) {
       e.preventDefault()
       handleSend()
+      return
     }
+    // Shift+Enter 始终换行
+    if (e.key === 'Enter' && e.shiftKey) {
+      // 默认行为，textarea 会换行
+      return
+    }
+    // 非发送键：Shift+Enter 以外的 Enter 不发送
+    if (e.key === 'Enter' && !e.shiftKey && !isModifier) {
+      e.preventDefault()
+    }
+  }
+
+  const toggleSendMode = () => {
+    const next = !sendOnEnter
+    setSendOnEnter(next)
+    localStorage.setItem('sendOnEnter', String(next))
+  }
+
+  const selectSendMode = (mode: 'enter' | 'cmd') => {
+    const next = mode === 'enter'
+    setSendOnEnter(next)
+    localStorage.setItem('sendOnEnter', String(next))
+    setShowSendModeDropdown(false)
   }
 
   const canSend = inputText.trim() && currentAgentId && !isLoading
@@ -632,7 +679,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
               className="absolute pointer-events-none text-sm"
               style={{ left: '16px', top: '8px', color: colors.textDim, opacity: 0.6 }}
             >
-              向 WaLiSSH 提问... (@ 技能 · ↑↓ 历史 · Enter 发送)
+              {inputPlaceholder()}
             </div>
           )}
 
@@ -734,8 +781,58 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
           {/* 中间留白 */}
           <div className="flex-1" />
 
-          {/* 右侧：发送模式提示 */}
-          <span>Enter 发送 · Shift+Enter 换行</span>
+          {/* 右侧：发送模式切换 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSendModeDropdown(!showSendModeDropdown)}
+              className="flex items-center gap-1 px-2 py-1 rounded-md cursor-pointer transition-colors hover:bg-black/10"
+              style={{ backgroundColor: 'transparent', color: colors.textDim }}
+              title="点击选择发送快捷键"
+            >
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+              {sendOnEnter ? (
+                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>Enter 发送</span>
+              ) : (
+                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{currentKeyLabel} 发送</span>
+              )}
+            </button>
+            {showSendModeDropdown && (
+              <div
+                className="absolute bottom-full right-0 mb-1 rounded-lg border shadow-lg py-1 min-w-[140px]"
+                style={{
+                  backgroundColor: colors.bgPrimary,
+                  borderColor: colors.border,
+                }}
+              >
+                <button
+                  onClick={() => selectSendMode('enter')}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors"
+                  style={{ fontSize: '11px', color: sendOnEnter ? colors.accent : colors.textSecondary }}
+                >
+                  {sendOnEnter && (
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  )}
+                  <span>Enter 发送</span>
+                </button>
+                <button
+                  onClick={() => selectSendMode('cmd')}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors"
+                  style={{ fontSize: '11px', color: !sendOnEnter ? colors.accent : colors.textSecondary }}
+                >
+                  {!sendOnEnter && (
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  )}
+                  <span>{currentKeyLabel} 发送</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
