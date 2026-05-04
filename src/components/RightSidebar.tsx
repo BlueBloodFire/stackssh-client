@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useAgentStore } from '../stores/agentStore'
 import { useConnectionStore } from '../stores/connectionStore'
@@ -78,7 +78,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     showAddToChatHint,
     bindTerminal,
     clearTerminalSelection,
-    formatServerContext,
+    
   } = useSshAgentStore()
 
   // 启动时加载智能体列表
@@ -162,46 +162,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     createServerSession,
   ])
 
-  // ===== 手动切换服务器（下拉选择） =====
-  const handleSwitchServer = useCallback(
-    async (connectionId: string) => {
-      const connection = connections.find((c) => c.id === connectionId)
-      if (!connection || connection.status !== ConnectionStatus.CONNECTED) return
-
-      if (!activeTerminalSessionId) return
-
-      const sessionId = currentSessionId || (currentAgentId ? (await createServerSession(currentAgentId), useAgentStore.getState().currentSessionId) : null)
-      if (!sessionId) return
-
-      // 绑定新服务器
-      const success = await bindTerminal(sessionId, activeTerminalSessionId, {
-        connectionId: connection.id,
-        connectionName: connection.name,
-        host: connection.host,
-        port: connection.port,
-        username: connection.username,
-      })
-
-      if (success) {
-        const systemMessage: AgentMessage = {
-          id: `msg_${Date.now()}`,
-          role: 'system',
-          content: `已切换服务器：${connection.name} (${connection.username}@${connection.host}:${connection.port})`,
-          timestamp: Date.now(),
-        }
-        addMessage(sessionId, systemMessage)
-      }
-    },
-    [
-      connections,
-      activeTerminalSessionId,
-      currentSessionId,
-      currentAgentId,
-      bindTerminal,
-      createServerSession,
-      addMessage,
-    ]
-  )
+  // handleSwitchServer 已移除 —— 服务器切换由左侧面板控制
 
   // ===== 处理发送消息 =====
   const handleSend = async () => {
@@ -223,10 +184,16 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
       clearTerminalSelection()
     }
 
-    // 如果有绑定的服务器，添加上下文
-    if (activeBinding) {
-      const serverContext = formatServerContext(activeBinding)
-      messageContent = `${serverContext}\n\n${messageContent}`
+    // 服务器上下文：优先 activeBinding，其次左侧选中的已连接服务器
+    const selectedConn = activeBinding
+      ? connections.find((c) => c.id === activeBinding.connectionId)
+      : connections.find((c) => c.id === currentConnectionId && c.status === ConnectionStatus.CONNECTED)
+    if (activeBinding || selectedConn) {
+      const conn = activeBinding ? connections.find((c) => c.id === activeBinding.connectionId) : selectedConn!
+      if (conn) {
+        const serverContext = `当前服务器：${conn.name} (${conn.username}@${conn.host}:${conn.port})`
+        messageContent = `${serverContext}\n\n${messageContent}`
+      }
     }
 
     const userMessage: AgentMessage = {
@@ -274,7 +241,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
         updateMessage(sessionId, assistantId, `请求失败: ${err}`)
         setLoading(false)
       },
-      activeTerminalSessionId // 传递终端会话ID
+      activeTerminalSessionId || undefined // 传递终端会话ID（无终端时为 undefined）
     )
 
     void abort
@@ -294,61 +261,32 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
       className="flex flex-col h-full flex-shrink-0 overflow-hidden"
       style={{ width, backgroundColor: colors.bgPrimary }}
     >
-      {/* ===== 服务器状态栏（可切换） ===== */}
-      <div
-        className="flex items-center justify-between px-4 py-2 border-b"
-        style={{
-          backgroundColor: activeBinding ? `${colors.accent}10` : colors.bgSecondary,
-          borderColor: colors.border,
-        }}
-      >
-        <div className="flex items-center gap-2">
-          {activeBinding ? (
-            <>
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: '#22c55e', animation: 'pulse 2s infinite' }}
-              />
-              <span className="text-[11px]" style={{ color: colors.textSecondary }}>
-                当前服务器：<b style={{ color: colors.text }}>{activeBinding.connectionName}</b>
-                <span style={{ color: colors.textDim }}> ({activeBinding.serverInfo.username}@{activeBinding.serverInfo.host})</span>
-              </span>
-            </>
-          ) : (
-            <>
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: colors.textDim }}
-              />
-              <span className="text-[11px]" style={{ color: colors.textDim }}>
-                未连接服务器 — 连接 SSH 后自动关联
-              </span>
-            </>
-          )}
-        </div>
-        {/* 服务器切换下拉 */}
-        {connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length > 0 && (
-          <select
-            value={activeBinding?.connectionId || ''}
-            onChange={(e) => handleSwitchServer(e.target.value)}
-            className="text-[11px] px-2 py-1 rounded cursor-pointer appearance-none pr-6"
+      {/* 服务器状态指示条 —— 直接跟随左侧选中，切换由左侧面板控制 */}
+      {(() => {
+        // 优先用 activeBinding（已绑定终端会话），其次用左侧选中的连接
+        const conn = activeBinding
+          ? connections.find((c) => c.id === activeBinding.connectionId)
+          : connections.find((c) => c.id === currentConnectionId)
+        if (!conn) return null
+        const connected = conn.status === 1
+        return (
+          <div
+            className="flex items-center gap-2 px-4 py-1.5 border-b"
             style={{
-              backgroundColor: colors.bgTertiary,
-              color: colors.textSecondary,
-              border: `1px solid ${colors.border}`,
+              backgroundColor: connected ? `${colors.accent}08` : `${colors.textDim}06`,
+              borderColor: colors.border,
             }}
           >
-            <option value="" disabled>切换服务器</option>
-            {connections
-              .filter((c) => c.status === ConnectionStatus.CONNECTED)
-              .map((conn) => (
-                <option key={conn.id} value={conn.id}>
-                  {conn.name}
-                </option>
-              ))}
-          </select>
-        )}
-      </div>
+            <div
+              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: connected ? '#22c55e' : colors.textDim }}
+            />
+            <span className="text-[11px] truncate" style={{ color: colors.textDim }}>
+              {conn.name}（{conn.username}@{conn.host}）{connected ? '' : ' · 未连接'}
+            </span>
+          </div>
+        )
+      })()}
 
       {/* ===== 消息区 ===== */}
       <div className="flex-1 overflow-y-auto min-h-0">

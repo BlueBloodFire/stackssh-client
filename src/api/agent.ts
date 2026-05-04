@@ -67,7 +67,6 @@ export function chatStream(
 
   const controller = new AbortController()
 
-
   fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -85,6 +84,7 @@ export function chatStream(
         return
       }
       const decoder = new TextDecoder()
+      let buffer = ''
 
       function read() {
         reader.read().then(({ done, value }) => {
@@ -92,8 +92,31 @@ export function chatStream(
             onDone()
             return
           }
-          const chunk = decoder.decode(value, { stream: true })
-          onChunk(chunk)
+          buffer += decoder.decode(value, { stream: true })
+
+          // 按换行分割，解析 JSON 事件
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || '' // 保留未完成的行
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed) continue
+
+            try {
+              // Google ADK Event JSON 格式：{"content":{"parts":[{"text":"..."}]},...}
+              const event = JSON.parse(trimmed)
+              if (event.content?.parts) {
+                for (const part of event.content.parts) {
+                  if (part.text) {
+                    onChunk(part.text)
+                  }
+                }
+              }
+            } catch {
+              // 解析失败，可能是非 JSON 格式，直接输出
+              onChunk(trimmed)
+            }
+          }
           read()
         }).catch(onError)
       }

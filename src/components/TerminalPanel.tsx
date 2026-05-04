@@ -300,6 +300,11 @@ export function TerminalPanel({
       const { sessionId, initialOutput } = res.data!
       state.session = { sessionId, connectionId }
 
+      // 通知父组件会话已建立
+      if (connectionId === currentConnectionId) {
+        onTerminalSessionChange?.(sessionId)
+      }
+
       if (initialOutput) {
         term.write(initialOutput)
       }
@@ -344,7 +349,10 @@ export function TerminalPanel({
         })
       }
     })
-  }, [currentConnectionId])
+    // 切换连接时通知父组件当前会话ID
+    const activeState = currentConnectionId ? terminalStates.current.get(currentConnectionId) : undefined
+    onTerminalSessionChange?.(activeState?.session?.sessionId ?? null)
+  }, [currentConnectionId, onTerminalSessionChange])
 
   /** 监听连接状态变化 */
   useEffect(() => {

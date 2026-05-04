@@ -233,22 +233,14 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
                   return (
                     <div
                       key={conn.id}
-                      onClick={async () => {
-                        selectConnection(conn.id)
-                        // 未连接状态下点击，自动发起 SSH 连接
-                        if (conn.status === ConnectionStatus.DISCONNECTED) {
-                          setConnectingId(conn.id)
-                          await connect(conn.id)
-                          setConnectingId(null)
-                        }
-                      }}
-                      className="w-full text-left px-3 py-2.5 rounded-md transition-all group cursor-pointer relative"
+                      onClick={() => selectConnection(conn.id)}
+                      className={`w-full text-left px-3 py-2.5 rounded-md transition-colors group cursor-pointer relative ${active ? 'ring-0' : ''}`}
                       style={{
-                        backgroundColor: active ? `${colors.accent}15` : 'transparent',
+                        backgroundColor: active ? `${colors.accent}15` : undefined,
                         borderLeft: active ? `3px solid ${colors.accent}` : '3px solid transparent',
                       }}
                       onMouseEnter={(e) => { if (!active) e.currentTarget.style.backgroundColor = `${colors.textDim}08` }}
-                      onMouseLeave={(e) => { if (!active) e.currentTarget.style.backgroundColor = 'transparent' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '' }}
                     >
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(conn.status, colors) }} />
