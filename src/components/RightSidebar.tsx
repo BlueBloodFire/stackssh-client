@@ -85,6 +85,64 @@ function ReActStepView({ step, colors }: { step: ReActStep; colors: ReturnType<t
   )
 }
 
+// 时间格式化：MM-DD 上午/下午HH:mm
+function formatTime(timestamp: number): string {
+  const d = new Date(timestamp)
+  const mo = (d.getMonth() + 1).toString().padStart(2, '0')
+  const day = d.getDate().toString().padStart(2, '0')
+  const h = d.getHours()
+  const ap = h < 12 ? '上午' : '下午'
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  const m = d.getMinutes().toString().padStart(2, '0')
+  return `${mo}-${day} ${ap}${h12}:${m}`
+}
+
+// 复制按钮
+function CopyButton({ text, isUser, colors }: { text: string; isUser: boolean; colors: ReturnType<typeof useThemeStore.getState>['colors'] }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // fallback
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      title="复制消息"
+      className="rounded cursor-pointer transition-all hover:opacity-80 flex items-center justify-center"
+      style={{
+        padding: '2px 4px',
+        backgroundColor: isUser ? 'rgba(0,0,0,0.15)' : colors.bgSecondary,
+        color: isUser ? 'rgba(255,255,255,0.95)' : colors.textSecondary,
+        border: isUser ? '1px solid rgba(0,0,0,0.1)' : `1px solid ${colors.border}`,
+      }}
+    >
+      {copied ? (
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      ) : (
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+      )}
+    </button>
+  )
+}
+
 // ===== 消息气泡 =====
 function MessageBubble({ message }: { message: AgentMessage }) {
   const { colors } = useThemeStore()
@@ -106,28 +164,41 @@ function MessageBubble({ message }: { message: AgentMessage }) {
     return html
   }
 
+  const timeStr = formatTime(message.timestamp)
+  const plainText = message.content || ''
+  const timeBar = (
+    <div className={`flex items-center gap-1.5 mt-1 ${isUser ? 'justify-end' : 'justify-start'}`} style={{ fontSize: '10px', color: colors.textDim }}>
+      {isUser && plainText && <CopyButton text={plainText} isUser={isUser} colors={colors} />}
+      <span>{timeStr}</span>
+      {!isUser && plainText && <CopyButton text={plainText} isUser={false} colors={colors} />}
+    </div>
+  )
+
   // ReAct 模式消息：显示步骤时间线
   if (message.steps && message.steps.length > 0) {
     return (
       <div className="px-4 py-1.5 flex justify-start">
-        <div className="w-full max-w-[88%] rounded-lg border" style={{
-          backgroundColor: colors.bgTertiary,
-          borderColor: colors.border,
-          borderRadius: '12px 12px 12px 2px',
-        }}>
-          <div className="px-3 pt-2 pb-1">
-            {message.steps.map((step, i) => (
-              <ReActStepView key={i} step={step} colors={colors} />
-            ))}
-            {/* 最终结果 */}
-            {message.content && (
-              <div className="mt-1 pt-1" style={{ borderTop: `1px solid ${colors.border}` }}>
-                <div className="text-[12px] leading-relaxed" style={{ color: colors.text, whiteSpace: 'pre-wrap' }}
-                  dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
-                />
-              </div>
-            )}
+        <div className="flex flex-col items-start">
+          <div className="max-w-[88%] rounded-lg border" style={{
+            backgroundColor: colors.bgTertiary,
+            borderColor: colors.border,
+            borderRadius: '12px 12px 12px 2px',
+          }}>
+            <div className="px-3 pt-2 pb-2">
+              {message.steps.map((step, i) => (
+                <ReActStepView key={i} step={step} colors={colors} />
+              ))}
+              {/* 最终结果 */}
+              {message.content && (
+                <div className="mt-1 pt-1" style={{ borderTop: `1px solid ${colors.border}` }}>
+                  <div className="text-[12px] leading-relaxed" style={{ color: colors.text, whiteSpace: 'pre-wrap' }}
+                    dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
+          {timeBar}
         </div>
       </div>
     )
@@ -135,15 +206,18 @@ function MessageBubble({ message }: { message: AgentMessage }) {
 
   return (
     <div className={`px-4 py-1.5 ${isUser ? 'flex justify-end' : 'flex justify-start'}`}>
-      <div
-        className="max-w-[88%] px-3.5 py-2.5 text-[13px] leading-relaxed"
-        style={{
-          backgroundColor: isUser ? colors.accent : colors.bgTertiary,
-          color: isUser ? '#fff' : colors.text,
-          borderRadius: isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-        }}
-        dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
-      />
+      <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+        <div
+          className="max-w-[88%] px-3.5 py-2.5 text-[13px] leading-relaxed"
+          style={{
+            backgroundColor: isUser ? colors.accent : colors.bgTertiary,
+            color: isUser ? '#fff' : colors.text,
+            borderRadius: isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+          }}
+          dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
+        />
+        {timeBar}
+      </div>
     </div>
   )
 }

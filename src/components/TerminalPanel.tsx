@@ -231,7 +231,7 @@ export function TerminalPanel({
     }
 
     const container = document.createElement('div')
-    container.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;padding:8px;overflow:hidden;'
+    container.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;padding:0 8px 25px 8px;overflow:hidden;'
     wrapperRef.current.appendChild(container)
 
     // 添加右键菜单事件
