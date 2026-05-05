@@ -40,9 +40,6 @@ const DISCONNECT_MARKER = '[连接已断开]'
 /** 轮询连续错误阈值 */
 const POLL_ERROR_THRESHOLD = 3
 
-/** 重连退避间隔（ms） */
-const RECONNECT_INTERVAL = 5000
-
 /** 右键菜单位置 */
 interface ContextMenuPos {
   x: number
@@ -57,7 +54,7 @@ export function TerminalPanel({
 }) {
   const { colors } = useThemeStore()
   const { currentConnectionId, connections, connect, disconnect } = useConnectionStore()
-  const { setTerminalSelection } = useSshAgentStore()
+  const { addInputTag } = useSshAgentStore()
 
   const terminalStates = useRef<Map<string, ConnectionTerminalState>>(new Map())
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -234,7 +231,19 @@ export function TerminalPanel({
     container.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;padding:0 8px 25px 8px;overflow:hidden;'
     wrapperRef.current.appendChild(container)
 
-    // 添加右键菜单事件
+    // 监听选中事件
+    term.onSelectionChange(() => {
+      const selection = term.getSelection()
+      if (selection) {
+        // 使用 timeout 等待鼠标事件完成，获取正确的位置
+        setTimeout(() => {
+          // 这里我们无法直接获取到鼠标位置，所以显示在一个固定位置或通过其他方式
+          // 但由于我们想在选中后直接弹出，我们需要在 xterm 的容器上监听 mouseup
+        }, 10)
+      }
+    })
+
+    // 添加右键菜单和选中事件
     container.addEventListener('contextmenu', (e) => {
       e.preventDefault()
       const selection = term.getSelection()
@@ -245,6 +254,26 @@ export function TerminalPanel({
           selectedText: selection,
         })
       }
+    })
+
+    // 鼠标抬起时，如果有选中内容，直接弹出菜单
+    container.addEventListener('mouseup', (e) => {
+      // 延迟一下确保 xterm 的 selection 已经更新
+      setTimeout(() => {
+        const selection = term.getSelection()
+        if (selection && selection.trim().length > 0) {
+          setContextMenu({
+            visible: true,
+            pos: { x: e.clientX, y: e.clientY },
+            selectedText: selection,
+          })
+        } else {
+          // 如果没有选中内容，且不是右键点击，关闭菜单
+          if (e.button !== 2) {
+            setContextMenu((prev) => ({ ...prev, visible: false }))
+          }
+        }
+      }, 50)
     })
 
     term.open(container)
@@ -393,14 +422,14 @@ export function TerminalPanel({
   /** 处理添加到对话 */
   const handleAddToChat = useCallback(() => {
     if (contextMenu.selectedText) {
-      setTerminalSelection({
-        text: contextMenu.selectedText,
-        terminalSessionId: getCurrentTerminalSessionId() || '',
-        selectedAt: Date.now(),
+      addInputTag({
+        label: contextMenu.selectedText.length > 20 ? contextMenu.selectedText.slice(0, 20) + '...' : contextMenu.selectedText,
+        fullContent: contextMenu.selectedText,
+        type: 'terminal-selection'
       })
     }
     setContextMenu((prev) => ({ ...prev, visible: false }))
-  }, [contextMenu.selectedText, getCurrentTerminalSessionId, setTerminalSelection])
+  }, [contextMenu.selectedText, addInputTag])
 
   /** 处理复制 */
   const handleCopy = useCallback(() => {

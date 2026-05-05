@@ -153,6 +153,13 @@ function MessageBubble({ message }: { message: AgentMessage }) {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
+    
+    // 处理引用块（用于展示选中的终端内容等标签）
+    html = html.replace(/^>\s?(.*)(?:\n>\s?(.*))*/gm, (match) => {
+      const content = match.replace(/^>\s?/gm, '')
+      return `<blockquote style="border-left: 3px solid ${colors.accent}; margin: 4px 0; padding-left: 8px; color: ${colors.textDim}; background: ${colors.bgSecondary}80; padding-top: 4px; padding-bottom: 4px; border-radius: 0 4px 4px 0;">${content}</blockquote>`
+    })
+
     // 代码块 - 使用主题色
     html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_match, _lang, code) => {
       return `<pre style="margin:6px 0;padding:10px;border-radius:6px;overflow-x:auto;font-size:11px;font-family:'JetBrains Mono',monospace;background:${colors.bgSecondary};color:${colors.text};border:1px solid ${colors.border}"><code>${code.trim()}</code></pre>`
@@ -254,11 +261,11 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
   const { connections, currentConnectionId } = useConnectionStore()
   const {
     activeBinding,
-    terminalSelection,
-    showAddToChatHint,
     bindTerminal,
-    clearTerminalSelection,
-    
+    inputTags,
+    removeInputTag,
+    clearInputTags,
+    getInputTagsContent,
   } = useSshAgentStore()
 
   // 启动时加载智能体列表
@@ -366,7 +373,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
 
   // ===== 处理发送消息 =====
   const handleSend = async () => {
-    if (!inputText.trim() || isLoading) return
+    if ((!inputText.trim() && inputTags.length === 0) || isLoading) return
     if (!currentAgentId) return
 
     // 无会话则先创建
@@ -378,10 +385,17 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     // 构建消息内容
     let messageContent = inputText
 
-    // 如果有终端选中内容，添加到消息
-    if (terminalSelection) {
-      messageContent = `${inputText}\n\n---\n终端选中内容：\n\`\`\`\n${terminalSelection.text}\n\`\`\``
-      clearTerminalSelection()
+    // 处理标签内容
+    const tagsContent = getInputTagsContent()
+    let displayContent = inputText // 用于界面显示的内容，可以包含标签等提示
+    if (tagsContent) {
+      messageContent = `${inputText}\n\n---\n附加内容：\n${tagsContent}`
+      
+      // 生成用于显示的带有引用样式的标签内容
+      const displayTags = inputTags.map(tag => `> \`${tag.label}\`\n> ${tag.fullContent}`).join('\n>\n')
+      displayContent = `${inputText}\n\n${displayTags}`
+      
+      clearInputTags()
     }
 
     // 服务器上下文：优先 activeBinding，其次左侧选中的已连接服务器
@@ -399,7 +413,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     const userMessage: AgentMessage = {
       id: `msg_${Date.now()}`,
       role: 'user',
-      content: inputText, // 显示原始输入
+      content: displayContent, // 显示带有标签提示的输入
       timestamp: Date.now(),
     }
     addMessage(sessionId, userMessage)
@@ -496,7 +510,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     setShowSendModeDropdown(false)
   }
 
-  const canSend = inputText.trim() && currentAgentId && !isLoading
+  const canSend = (inputText.trim() || inputTags.length > 0) && currentAgentId && !isLoading
 
   return (
     <div
@@ -595,37 +609,6 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
           </div>
         )}
       </div>
-
-      {/* ===== 终端选中提示 ===== */}
-      {showAddToChatHint && terminalSelection && (
-        <div
-          className="mx-4 mb-2 px-3 py-2 rounded-lg text-[11px] flex items-center justify-between"
-          style={{
-            backgroundColor: colors.bgTertiary,
-            border: `1px dashed ${colors.accent}60`,
-            color: colors.textSecondary,
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            <span className="truncate max-w-[200px]">
-              已选中 {terminalSelection.text.length} 个字符
-            </span>
-          </div>
-          <button
-            onClick={clearTerminalSelection}
-            className="p-1 rounded hover:bg-black/10"
-            style={{ color: colors.textDim }}
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
-      )}
 
       {/* ===== 拖拽手柄 ===== */}
       <div
@@ -727,13 +710,45 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
       >
         {/* 输入框容器 */}
         <div
-          className={`relative w-full rounded-lg border transition-all`}
+          className={`relative w-full rounded-lg border transition-all flex flex-col`}
           style={{
             backgroundColor: colors.bgInput,
             borderColor: isFocused ? `${colors.accent}80` : colors.border,
             boxShadow: isFocused ? `0 0 0 1px ${colors.accent}30` : 'none',
           }}
         >
+          {/* 渲染标签 */}
+          {inputTags.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3 pb-1 max-h-[100px] overflow-y-auto">
+              {inputTags.map((tag) => (
+                <div
+                  key={tag.id}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] max-w-[200px]"
+                  style={{
+                    backgroundColor: colors.bgTertiary,
+                    border: `1px solid ${colors.border}`,
+                    color: colors.textSecondary,
+                  }}
+                >
+                  <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  <span className="truncate">{tag.label}</span>
+                  <button
+                    onClick={() => removeInputTag(tag.id)}
+                    className="p-0.5 rounded hover:bg-black/10 flex-shrink-0"
+                    style={{ color: colors.textDim }}
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
             value={inputText}
@@ -743,12 +758,12 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
             onBlur={() => setIsFocused(false)}
             disabled={isLoading}
             rows={4}
-            className="w-full bg-transparent resize-none outline-none text-[13px] leading-relaxed"
+            className="w-full bg-transparent resize-none outline-none text-[13px] leading-relaxed flex-1"
             style={{
               color: isLoading ? colors.textDim : colors.text,
               minHeight: 120,
               maxHeight: 280,
-              padding: '8px 16px 44px 16px',
+              padding: inputTags.length > 0 ? '4px 16px 44px 16px' : '8px 16px 44px 16px',
             }}
           />
 
@@ -756,7 +771,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
           {!inputText && !isFocused && (
             <div
               className="absolute pointer-events-none text-sm"
-              style={{ left: '16px', top: '8px', color: colors.textDim, opacity: 0.6 }}
+              style={{ left: '16px', top: inputTags.length > 0 ? '42px' : '8px', color: colors.textDim, opacity: 0.6 }}
             >
               {inputPlaceholder()}
             </div>

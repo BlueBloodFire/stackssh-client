@@ -30,13 +30,18 @@ interface SshAgentBinding {
   boundAt: number
 }
 
-interface TerminalSelection {
-  /** 选中的文本 */
-  text: string
-  /** 来源终端会话 ID */
-  terminalSessionId: string
-  /** 选中时间 */
-  selectedAt: number
+/** 输入框标签 */
+interface InputTag {
+  /** 标签 ID */
+  id: string
+  /** 标签显示文本（预览） */
+  label: string
+  /** 完整内容 */
+  fullContent: string
+  /** 标签类型 */
+  type: 'terminal-selection' | 'file' | 'custom'
+  /** 添加时间 */
+  addedAt: number
 }
 
 interface SshAgentStore {
@@ -50,11 +55,9 @@ interface SshAgentStore {
   /** 绑定错误信息 */
   bindingError: string | null
 
-  // ===== 终端选中内容 =====
-  /** 当前选中的终端内容 */
-  terminalSelection: TerminalSelection | null
-  /** 是否显示添加到对话的提示 */
-  showAddToChatHint: boolean
+  // ===== 输入框标签 =====
+  /** 输入框中的标签列表 */
+  inputTags: InputTag[]
 
   // ===== 连接选择器 =====
   /** 是否显示连接选择器 */
@@ -83,12 +86,20 @@ interface SshAgentStore {
   /** 设置当前激活的绑定 */
   setActiveBinding: (binding: SshAgentBinding | null) => void
 
-  /** 设置终端选中内容 */
-  setTerminalSelection: (selection: TerminalSelection | null) => void
+  // ===== 输入框标签操作 =====
+  /** 添加标签到输入框 */
+  addInputTag: (tag: Omit<InputTag, 'id' | 'addedAt'>) => void
 
-  /** 清除终端选中内容 */
-  clearTerminalSelection: () => void
+  /** 移除指定标签 */
+  removeInputTag: (tagId: string) => void
 
+  /** 清空所有标签 */
+  clearInputTags: () => void
+
+  /** 获取所有标签的完整内容（用于发送消息） */
+  getInputTagsContent: () => string
+
+  // ===== 连接选择器 =====
   /** 显示连接选择器 */
   openConnectionSelector: () => void
 
@@ -111,8 +122,7 @@ export const useSshAgentStore = create<SshAgentStore>((set, get) => ({
   bindings: new Map(),
   isBinding: false,
   bindingError: null,
-  terminalSelection: null,
-  showAddToChatHint: false,
+  inputTags: [],
   showConnectionSelector: false,
 
   // ===== Actions =====
@@ -203,17 +213,34 @@ export const useSshAgentStore = create<SshAgentStore>((set, get) => ({
 
   setActiveBinding: (binding) => set({ activeBinding: binding }),
 
-  setTerminalSelection: (selection) =>
-    set({
-      terminalSelection: selection,
-      showAddToChatHint: selection !== null,
-    }),
+  // ===== 输入框标签操作 =====
+  addInputTag: (tag) => {
+    const id = `tag_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    const newTag: InputTag = {
+      ...tag,
+      id,
+      addedAt: Date.now(),
+    }
+    set((state) => ({
+      inputTags: [...state.inputTags, newTag],
+    }))
+  },
 
-  clearTerminalSelection: () =>
-    set({
-      terminalSelection: null,
-      showAddToChatHint: false,
-    }),
+  removeInputTag: (tagId) => {
+    set((state) => ({
+      inputTags: state.inputTags.filter((tag) => tag.id !== tagId),
+    }))
+  },
+
+  clearInputTags: () => {
+    set({ inputTags: [] })
+  },
+
+  getInputTagsContent: () => {
+    const tags = get().inputTags
+    if (tags.length === 0) return ''
+    return tags.map((tag) => tag.fullContent).join('\n\n---\n\n')
+  },
 
   openConnectionSelector: () => set({ showConnectionSelector: true }),
 
