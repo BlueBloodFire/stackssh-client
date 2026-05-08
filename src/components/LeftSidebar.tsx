@@ -99,6 +99,8 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     initialValue: '',
   })
 
+  const [dialogInputValue, setDialogInputValue] = useState('')
+
   const dialogInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -221,6 +223,7 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
 
   const openDialog = (type: DialogState['type'], title: string, node: FileNode | null, connectionId: string, parentPath: string, initialValue: string = '') => {
     closeContextMenu()
+    setDialogInputValue(initialValue)
     setDialog({ type, title, node, connectionId, parentPath, initialValue })
   }
 
@@ -234,43 +237,48 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     }
   }, [dialog.type])
 
-  const handleFileAction = async (value: string) => {
+  const handleFileAction = async (value: string, useSudo = false) => {
     if (!dialog.type) return
 
     try {
+      let res: { code: string; info: string } | undefined
+
       if (dialog.type === 'create-file') {
         const filePath = dialog.parentPath === '/' ? `/${value}` : `${dialog.parentPath}/${value}`
-        const res = await createFile(dialog.connectionId, filePath)
-        if (res.code !== '0000') {
-          alert(`创建失败: ${res.info}`)
-          return
-        }
-        await refreshDirectory(dialog.connectionId, dialog.parentPath)
+        res = await createFile(dialog.connectionId, filePath, useSudo)
       } else if (dialog.type === 'create-directory') {
         const dirPath = dialog.parentPath === '/' ? `/${value}` : `${dialog.parentPath}/${value}`
-        const res = await createDirectory(dialog.connectionId, dirPath)
-        if (res.code !== '0000') {
-          alert(`创建失败: ${res.info}`)
-          return
-        }
-        await refreshDirectory(dialog.connectionId, dialog.parentPath)
+        res = await createDirectory(dialog.connectionId, dirPath, useSudo)
       } else if (dialog.type === 'rename' && dialog.node) {
         const node = dialog.node as FileNode
         const parentPath = node.path ? (node.path.substring(0, node.path.lastIndexOf('/')) || '/') : '/'
         const newPath = parentPath === '/' ? `/${value}` : `${parentPath}/${value}`
-        const res = await renameFile(dialog.connectionId, node.path, newPath)
-        if (res.code !== '0000') {
-          alert(`重命名失败: ${res.info}`)
-          return
+        res = await renameFile(dialog.connectionId, node.path, newPath, useSudo)
+      } else if (dialog.type === 'delete' && dialog.node) {
+        const node = dialog.node as FileNode
+        res = await deleteFile(dialog.connectionId, node.path, useSudo)
+      }
+
+      if (res && res.code !== '0000') {
+        if (res.info && res.info.includes('Permission denied') && !useSudo) {
+          if (confirm('权限不足，是否使用 sudo 重试？')) {
+            await handleFileAction(value, true)
+            return
+          }
         }
+        alert(`操作失败: ${res.info}`)
+        return
+      }
+
+      // 刷新父目录
+      if (dialog.type === 'create-file' || dialog.type === 'create-directory') {
+        await refreshDirectory(dialog.connectionId, dialog.parentPath)
+      } else if (dialog.type === 'rename' && dialog.node) {
+        const node = dialog.node as FileNode
+        const parentPath = node.path ? (node.path.substring(0, node.path.lastIndexOf('/')) || '/') : '/'
         await refreshDirectory(dialog.connectionId, parentPath)
       } else if (dialog.type === 'delete' && dialog.node) {
         const node = dialog.node as FileNode
-        const res = await deleteFile(dialog.connectionId, node.path)
-        if (res.code !== '0000') {
-          alert(`删除失败: ${res.info}`)
-          return
-        }
         const parentPath = node.path ? (node.path.substring(0, node.path.lastIndexOf('/')) || '/') : '/'
         await refreshDirectory(dialog.connectionId, parentPath)
       }
@@ -395,10 +403,11 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
               type="text"
               className="w-full px-2 py-1.5 rounded text-xs mb-4"
               style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }}
-              defaultValue={dialog.initialValue}
+              value={dialogInputValue}
               placeholder="请输入名称"
+              onChange={(e) => setDialogInputValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleFileAction((e.target as HTMLInputElement).value)
+                if (e.key === 'Enter') handleFileAction(dialogInputValue)
                 else if (e.key === 'Escape') closeDialog()
               }}
             />
@@ -421,8 +430,13 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
               className="px-3 py-1.5 rounded text-xs transition-colors"
               style={{ color: '#ffffff', backgroundColor: isDelete ? colors.red : colors.accent }}
               onClick={() => {
-                if (!isDelete && dialogInputRef.current) {
-                  handleFileAction(dialogInputRef.current.value)
+                if (!isDelete && !dialogInputValue.trim()) {
+                  alert('请输入名称')
+                  dialogInputRef.current?.focus()
+                  return
+                }
+                if (!isDelete) {
+                  handleFileAction(dialogInputValue)
                 } else if (isDelete) {
                   handleFileAction('')
                 }

@@ -48,20 +48,24 @@ export function FileWorkspace({ activeTabKey }: FileWorkspaceProps) {
 
   const handleSave = useCallback(async () => {
     if (activeTabKey) {
-      const success = await saveFile(activeTabKey)
+      const success = await saveFile(activeTabKey, useSudo)
       if (!success) {
-        // 保存失败，可能需要sudo权限
         if (useSudo) {
-          alert('保存失败，sudo权限也无法写入，请检查文件权限')
+          alert('保存失败，sudo 权限也无法写入，请检查文件权限')
         } else {
-          // 询问是否尝试sudo
-          if (confirm('保存失败: Permission denied\n是否尝试使用sudo权限保存？')) {
+          if (confirm('保存失败: Permission denied\n是否尝试使用 sudo 权限保存？')) {
             setUseSudo(true)
+            // 用 sudo 重试
+            const retrySuccess = await saveFile(activeTabKey, true)
+            if (retrySuccess) {
+              setIsEditing(false)
+              setUseSudo(false)
+            }
           }
         }
       } else {
-        // 保存成功，退出编辑模式
         setIsEditing(false)
+        setUseSudo(false)
       }
     }
   }, [activeTabKey, saveFile, useSudo])

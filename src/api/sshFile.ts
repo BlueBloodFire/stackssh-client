@@ -36,20 +36,20 @@ export function getFileContent(connectionId: string, path: string) {
   return get<SshFileContentResponseDTO>(`${BASE}/content`, { connectionId, path })
 }
 
-export function createFile(connectionId: string, path: string) {
-  return post<void>(`${BASE}/create-file`, undefined, { connectionId, path })
+export function createFile(connectionId: string, path: string, useSudo?: boolean) {
+  return post<void>(`${BASE}/create-file`, undefined, { connectionId, path, sudo: useSudo ? 'true' : 'false' })
 }
 
-export function createDirectory(connectionId: string, path: string) {
-  return post<void>(`${BASE}/create-directory`, undefined, { connectionId, path })
+export function createDirectory(connectionId: string, path: string, useSudo?: boolean) {
+  return post<void>(`${BASE}/create-directory`, undefined, { connectionId, path, sudo: useSudo ? 'true' : 'false' })
 }
 
-export function renameFile(connectionId: string, oldPath: string, newPath: string) {
-  return post<void>(`${BASE}/rename`, undefined, { connectionId, oldPath, newPath })
+export function renameFile(connectionId: string, oldPath: string, newPath: string, useSudo?: boolean) {
+  return post<void>(`${BASE}/rename`, undefined, { connectionId, oldPath, newPath, sudo: useSudo ? 'true' : 'false' })
 }
 
-export function deleteFile(connectionId: string, path: string) {
-  return post<void>(`${BASE}/delete`, undefined, { connectionId, path })
+export function deleteFile(connectionId: string, path: string, useSudo?: boolean) {
+  return post<void>(`${BASE}/delete`, undefined, { connectionId, path, sudo: useSudo ? 'true' : 'false' })
 }
 
 export function saveFileContent(connectionId: string, path: string, content: string, useSudo?: boolean) {
