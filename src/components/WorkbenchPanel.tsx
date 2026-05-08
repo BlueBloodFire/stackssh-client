@@ -1,0 +1,313 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useThemeStore } from '../stores/themeStore'
+import { useFileExplorerStore } from '../stores/fileExplorerStore'
+import { TerminalPanel } from './TerminalPanel'
+import { FileWorkspace } from './FileWorkspace'
+
+interface WorkbenchPanelProps {
+  terminalVisible: boolean
+  onTerminalSessionChange?: (sessionId: string | null) => void
+  globalTerminalManaged?: boolean
+}
+
+const TERMINAL_TAB_KEY = '__terminal__'
+
+export function WorkbenchPanel({ terminalVisible, onTerminalSessionChange, globalTerminalManaged = false }: WorkbenchPanelProps) {
+  const { colors } = useThemeStore()
+  const { openTabs, activeTabKey, setActiveTab, closeTab, closeTabsToLeft, closeTabsToRight, closeOtherTabs, closeAllTabs } = useFileExplorerStore()
+  const [activePane, setActivePane] = useState<string>(globalTerminalManaged ? '' : (terminalVisible ? TERMINAL_TAB_KEY : ''))
+  const lastActiveTabKeyRef = useRef<string | null>(activeTabKey)
+
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const tabsScrollRef = useRef<HTMLDivElement>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabKey: string } | null>(null)
+
+  const paneKeys = useMemo(() => {
+    const keys: string[] = []
+    if (terminalVisible && !globalTerminalManaged) keys.push(TERMINAL_TAB_KEY)
+    keys.push(...openTabs.map((tab) => tab.key))
+    return keys
+  }, [terminalVisible, openTabs, globalTerminalManaged])
+
+  useEffect(() => {
+    // 全局终端模式下，不处理 TERMINAL_TAB_KEY
+    if (globalTerminalManaged) {
+      if (activeTabKey && activePane !== activeTabKey) {
+        setActivePane(activeTabKey)
+      }
+      return
+    }
+
+    // 原有的逻辑（非全局终端模式）
+    if (terminalVisible && activePane === '') {
+      setActivePane(TERMINAL_TAB_KEY)
+      return
+    }
+    if (!terminalVisible && activePane === TERMINAL_TAB_KEY) {
+      if (activeTabKey) setActivePane(activeTabKey)
+      else setActivePane('')
+      return
+    }
+    if (activePane && !paneKeys.includes(activePane)) {
+      if (terminalVisible) setActivePane(TERMINAL_TAB_KEY)
+      else if (activeTabKey) setActivePane(activeTabKey)
+      else setActivePane('')
+    }
+  }, [terminalVisible, activePane, paneKeys, activeTabKey, globalTerminalManaged])
+
+  useEffect(() => {
+    const prev = lastActiveTabKeyRef.current
+    const next = activeTabKey
+    if (next && next !== prev && paneKeys.includes(next)) {
+      setActivePane(next)
+      // 自动滚动到可视区域
+      setTimeout(() => {
+        const activeBtn = tabsScrollRef.current?.querySelector(`[data-tab-key="${next}"]`) as HTMLElement
+        if (activeBtn && tabsScrollRef.current) {
+          activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+        }
+      }, 50)
+    }
+    lastActiveTabKeyRef.current = next
+  }, [activeTabKey, paneKeys])
+
+  // 点击空白处关闭下拉菜单
+  useEffect(() => {
+    const closeDropdown = () => setDropdownOpen(false)
+    if (dropdownOpen) {
+      document.addEventListener('click', closeDropdown)
+      return () => document.removeEventListener('click', closeDropdown)
+    }
+  }, [dropdownOpen])
+
+  // 右键菜单处理
+  useEffect(() => {
+    const closeContextMenu = () => setContextMenu(null)
+    if (contextMenu) {
+      document.addEventListener('click', closeContextMenu)
+      document.addEventListener('contextmenu', closeContextMenu)
+      return () => {
+        document.removeEventListener('click', closeContextMenu)
+        document.removeEventListener('contextmenu', closeContextMenu)
+      }
+    }
+  }, [contextMenu])
+
+  return (
+    <div className="h-full flex flex-col min-w-0 relative" style={{ backgroundColor: colors.bgTertiary }}>
+      <div className="h-9 border-b flex items-center pr-2 relative" style={{ borderColor: colors.border }}>
+        {/* 固定在最左侧的终端按钮 - 仅非全局终端模式显示 */}
+        {terminalVisible && !globalTerminalManaged && (
+          <div className="flex-shrink-0 flex items-center h-full px-2" style={{ borderRight: `1px solid ${colors.border}` }}>
+            <button
+              data-tab-key={TERMINAL_TAB_KEY}
+              onClick={() => setActivePane(TERMINAL_TAB_KEY)}
+              className="h-7 px-3 rounded-md flex items-center gap-1.5 text-xs transition-colors"
+              style={{
+                color: activePane === TERMINAL_TAB_KEY ? colors.accent : colors.textSecondary,
+                backgroundColor: activePane === TERMINAL_TAB_KEY ? colors.bgSecondary : 'transparent',
+                border: `1px solid ${activePane === TERMINAL_TAB_KEY ? colors.border : 'transparent'}`,
+              }}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+              </svg>
+              <span className="font-medium">终端</span>
+            </button>
+          </div>
+        )}
+
+        {/* 全局终端模式下的提示 */}
+        {globalTerminalManaged && (
+          <div className="flex-shrink-0 flex items-center h-full px-2 text-xs" style={{ borderRight: `1px solid ${colors.border}`, color: colors.textDim }}>
+            <span>💡 切换到「SSH 服务器」标签访问终端</span>
+          </div>
+        )}
+
+        {/* 右侧可滚动文件 Tab 区 */}
+        <div 
+          ref={tabsScrollRef}
+          className="flex-1 h-full flex items-center px-2 gap-1 overflow-x-auto no-scrollbar"
+        >
+          {openTabs.map((tab) => {
+            const active = activePane === tab.key
+            return (
+              <button
+                key={tab.key}
+                data-tab-key={tab.key}
+                onClick={() => { setActivePane(tab.key); setActiveTab(tab.key) }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setContextMenu({ x: e.clientX, y: e.clientY, tabKey: tab.key })
+                }}
+                className="group h-7 px-3 rounded-md flex items-center gap-2 text-xs max-w-[200px] flex-shrink-0 transition-colors"
+                style={{
+                  color: active ? colors.text : colors.textSecondary,
+                  backgroundColor: active ? colors.bgSecondary : 'transparent',
+                  border: `1px solid ${active ? colors.border : 'transparent'}`,
+                }}
+              >
+                <span className="truncate">{tab.name}</span>
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    closeTab(tab.key)
+                  }}
+                  className="opacity-0 group-hover:opacity-60 hover:!opacity-100 flex items-center justify-center w-4 h-4 rounded-sm"
+                  style={{ backgroundColor: active ? 'rgba(255,255,255,0.1)' : 'transparent' }}
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </span>
+              </button>
+            )
+          })}
+          {(!globalTerminalManaged && !terminalVisible && openTabs.length === 0) || (globalTerminalManaged && openTabs.length === 0) && (
+            <span className="text-xs px-2" style={{ color: colors.textDim }}>
+              点击左侧文件树打开文件
+            </span>
+          )}
+        </div>
+
+        {/* 右侧下拉菜单按钮 */}
+        {openTabs.length > 0 && (
+          <div className="relative flex-shrink-0 flex items-center pl-1 border-l" style={{ borderColor: colors.border }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setDropdownOpen(!dropdownOpen) }}
+              className="h-7 px-2 rounded-md flex items-center gap-1 text-xs hover:bg-white/5 transition-colors"
+              style={{ color: colors.textSecondary }}
+            >
+              <span className="font-mono text-[10px] bg-black/10 px-1 rounded">{openTabs.length}</span>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            
+            {/* 下拉菜单面板 */}
+            {dropdownOpen && (
+              <div 
+                className="absolute top-full right-0 mt-1 w-56 rounded-md shadow-lg border py-1 z-50 max-h-80 overflow-y-auto"
+                style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
+              >
+                <div className="px-3 py-1.5 text-[11px] uppercase font-medium tracking-wider border-b mb-1" style={{ color: colors.textDim, borderColor: colors.border }}>
+                  打开的文件
+                </div>
+                {openTabs.map(tab => (
+                  <button
+                    key={`menu-${tab.key}`}
+                    className="w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-white/5 transition-colors"
+                    style={{ color: activePane === tab.key ? colors.accent : colors.text }}
+                    onClick={() => {
+                      setActivePane(tab.key)
+                      setActiveTab(tab.key)
+                      setDropdownOpen(false)
+                    }}
+                  >
+                    <span className="truncate pr-4">{tab.name}</span>
+                    <span 
+                      className="opacity-60 hover:opacity-100 flex-shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        closeTab(tab.key)
+                      }}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0 relative">
+        {/* 仅非全局终端模式下显示内联终端 */}
+        {terminalVisible && !globalTerminalManaged && (
+          <div
+            className="absolute inset-0"
+            style={{ display: activePane === TERMINAL_TAB_KEY ? 'block' : 'none', backgroundColor: colors.bgPrimary }}
+          >
+            <TerminalPanel onTerminalSessionChange={onTerminalSessionChange} />
+          </div>
+        )}
+
+        {/* 文件工作区 - 全局终端模式下始终显示 */}
+        <div
+          className="absolute inset-0"
+          style={{ 
+            display: (globalTerminalManaged || activePane !== TERMINAL_TAB_KEY) ? 'block' : 'none' 
+          }}
+        >
+          <FileWorkspace activeTabKey={activePane || activeTabKey} />
+        </div>
+      </div>
+
+      {/* 右键菜单 */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 w-48 rounded-md shadow-lg border py-1"
+          style={{
+            left: Math.min(contextMenu.x, window.innerWidth - 200),
+            top: Math.min(contextMenu.y, window.innerHeight - 200),
+            backgroundColor: colors.bgSecondary,
+            borderColor: colors.border,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
+            style={{ color: colors.text }}
+            onClick={() => {
+              closeTabsToLeft(contextMenu.tabKey)
+              setContextMenu(null)
+            }}
+          >
+            关闭左侧
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
+            style={{ color: colors.text }}
+            onClick={() => {
+              closeTabsToRight(contextMenu.tabKey)
+              setContextMenu(null)
+            }}
+          >
+            关闭右侧
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
+            style={{ color: colors.text }}
+            onClick={() => {
+              closeOtherTabs(contextMenu.tabKey)
+              setContextMenu(null)
+            }}
+          >
+            关闭其他
+          </button>
+          <div style={{ height: 1, backgroundColor: colors.border, margin: '4px 0' }} />
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
+            style={{ color: colors.text }}
+            onClick={() => {
+              closeAllTabs()
+              setContextMenu(null)
+              if (!globalTerminalManaged && terminalVisible) {
+                setActivePane(TERMINAL_TAB_KEY)
+              }
+            }}
+          >
+            全部关闭
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}

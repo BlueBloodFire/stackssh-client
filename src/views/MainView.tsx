@@ -4,6 +4,7 @@ import { ActivityBar } from '../components/ActivityBar'
 import { LeftSidebar } from '../components/LeftSidebar'
 import { RightSidebar } from '../components/RightSidebar'
 import { TerminalPanel } from '../components/TerminalPanel'
+import { WorkbenchPanel } from '../components/WorkbenchPanel'
 import { Settings } from '../components/Settings'
 import { SSHConnectionModal } from '../components/SSHConnectionModal'
 import { useThemeStore } from '../stores/themeStore'
@@ -11,8 +12,13 @@ import { useThemeStore } from '../stores/themeStore'
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
 /**
- * MainView V2
- * 
+ * MainView V3 - SSH 会话优化版
+ *
+ * 优化内容：
+ * 1. 终端会话保持在全局层级，不因标签页切换而销毁
+ * 2. 从文件目录切回 SSH 服务器时，连接保持
+ * 3. 终端与工作区共用同一套连接会话
+ *
  * 集成 SSH 智能体交互功能：
  * 1. 终端会话变化时通知右侧 AI 面板
  * 2. 终端选中内容可右键添加到对话
@@ -56,7 +62,6 @@ export function MainView() {
 
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
-    document.body.style.cursor = 'col-resize'
   }, [sidebarWidth])
 
   // Chat 拖拽
@@ -80,7 +85,6 @@ export function MainView() {
 
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
-    document.body.style.cursor = 'col-resize'
   }, [chatWidth])
 
   useEffect(() => {
@@ -133,13 +137,38 @@ export function MainView() {
           </>
         )}
 
-        {/* 中间：终端 */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {terminalVisible ? (
+        {/* 中间：根据左侧 Tab 切换工作区 */}
+        <div className="flex-1 min-w-0 overflow-hidden relative">
+          {/* 全局终端面板 - 始终保持挂载，只控制可见性 */}
+          <div 
+            className="absolute inset-0 z-10"
+            style={{ 
+              display: activeTab === 'servers' && terminalVisible ? 'block' : 'none',
+            }}
+          >
             <TerminalPanel onTerminalSessionChange={handleTerminalSessionChange} />
-          ) : (
-            <div className="flex-1 flex items-center justify-center">
+          </div>
+
+          {/* 服务器标签页 - 终端隐藏时的提示 */}
+          {activeTab === 'servers' && !terminalVisible && (
+            <div className="h-full flex items-center justify-center">
               <p className="text-sm" style={{ color: colors.textDim }}>终端已隐藏 (按 ⌘` 显示)</p>
+            </div>
+          )}
+
+          {/* 文件/工作区标签页 */}
+          {(activeTab === 'files' || activeTab === 'sftp') && (
+            <WorkbenchPanel
+              terminalVisible={terminalVisible}
+              onTerminalSessionChange={handleTerminalSessionChange}
+              // 传入一个标志，表示终端已经在全局管理了
+              globalTerminalManaged={true}
+            />
+          )}
+
+          {activeTab === 'extensions' && (
+            <div className="h-full flex items-center justify-center">
+              <p className="text-sm" style={{ color: colors.textDim }}>扩展面板开发中</p>
             </div>
           )}
         </div>

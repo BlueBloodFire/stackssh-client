@@ -1,36 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { ConnectionStatus } from '../types'
 import { SSHConnectionModal } from './SSHConnectionModal'
+import { useFileExplorerStore } from '../stores/fileExplorerStore'
+import { useSshAgentStore } from '../stores/sshAgentStore'
+import { getFileContent } from '../api/sshFile'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
 interface LeftSidebarProps {
   activeTab: TabId
 }
-
-// 模拟文件树数据
-const mockFileTree = [
-  {
-    name: '/',
-    type: 'dir',
-    expanded: true,
-    children: [
-      { name: 'home', type: 'dir', expanded: false, children: [] },
-      { name: 'etc', type: 'dir', expanded: false, children: [] },
-      { name: 'var', type: 'dir', expanded: false, children: [] },
-      { name: 'usr', type: 'dir', expanded: true, children: [
-        { name: 'bin', type: 'dir', children: [] },
-        { name: 'local', type: 'dir', children: [] },
-      ]},
-      { name: 'tmp', type: 'dir', expanded: false, children: [] },
-      { name: 'boot', type: 'dir', expanded: false, children: [] },
-      { name: 'root', type: 'dir', expanded: false, children: [] },
-      { name: 'opt', type: 'dir', expanded: false, children: [] },
-    ]
-  }
-]
 
 /** 连接状态对应颜色 */
 function statusColor(status: number, colors: any): string {
@@ -55,9 +36,24 @@ function statusText(status: number): string {
 export function LeftSidebar({ activeTab }: LeftSidebarProps) {
   const { colors } = useThemeStore()
   const { connections, currentConnectionId, selectConnection, fetchConnections, removeConnection, connect, disconnect, loading, error, clearError } = useConnectionStore()
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set(['/']))
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [connectingId, setConnectingId] = useState<string | null>(null)
+  const {
+    activeConnectionId: activeFileConnectionId,
+    rootPathByConnection,
+    homePathByConnection,
+    currentPathByConnection,
+    childrenByConnection,
+    expandedByConnection,
+    loadingRootByConnection,
+    loadingPathsByConnection,
+    errorByConnection,
+    activeTabKey,
+    switchConnection,
+    navigateToPath,
+    toggleDirectory,
+    openFile,
+  } = useFileExplorerStore()
 
   const currentConn = connections.find((c) => c.id === currentConnectionId)
 
@@ -69,13 +65,6 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
   useEffect(() => {
     fetchConnections()
   }, [fetchConnections])
-
-  const toggleDir = (path: string) => {
-    const next = new Set(expandedDirs)
-    if (next.has(path)) next.delete(path)
-    else next.add(path)
-    setExpandedDirs(next)
-  }
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
@@ -110,39 +99,146 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
     fetchConnections()
   }
 
-  const renderTree = (nodes: any[], depth = 0, parentPath = '') => {
+  useEffect(() => {
+    if ((activeTab === 'files' || activeTab === 'sftp') && currentConnectionId) {
+      switchConnection(currentConnectionId)
+    }
+  }, [activeTab, currentConnectionId, switchConnection])
+
+  const browsingConnectionId = activeFileConnectionId || currentConnectionId
+  const browsingConnection = connections.find((c) => c.id === browsingConnectionId) || null
+  const currentPath = browsingConnectionId ? currentPathByConnection[browsingConnectionId] : ''
+  const homePath = browsingConnectionId ? homePathByConnection[browsingConnectionId] : ''
+  const rootPath = browsingConnectionId ? rootPathByConnection[browsingConnectionId] : '/'
+
+  const crumbs = useMemo(() => {
+    if (!currentPath) return []
+    if (currentPath === '/') return ['/']
+    const parts = currentPath.split('/').filter(Boolean)
+    const result: string[] = ['/']
+    let cursor = ''
+    for (const part of parts) {
+      cursor += `/${part}`
+      result.push(cursor)
+    }
+    return result
+  }, [currentPath])
+
+  const handleAddContext = async (connectionId: string, node: any) => {
+    const store = useSshAgentStore.getState()
+    if (node.directory) {
+      const children = childrenByConnection[connectionId]?.[node.path]
+      let filesList = ''
+      if (children && children.length > 0) {
+        filesList = `\n目录内容预览:\n` + children.map((c: any) => `  ${c.directory ? '📁' : '📄'} ${c.name}`).join('\n')
+      }
+      store.addInputTag({
+        label: `目录: ${node.name}`,
+        fullContent: `当前操作目录: ${node.path}${filesList}`,
+        type: 'custom'
+      })
+    } else {
+      // 添加文件，先从 openTabs 找，如果没有则调 API
+      const key = `${connectionId}:${node.path}`
+      const existingTab = useFileExplorerStore.getState().openTabs.find(t => t.key === key)
+      let content = existingTab?.content
+      
+      if (!content) {
+        const res = await getFileContent(connectionId, node.path)
+        if (res.code === '0000' && res.data) {
+          content = res.data.content
+        } else {
+          return // 获取失败
+        }
+      }
+      
+      store.addInputTag({
+        label: `文件: ${node.name}`,
+        fullContent: `文件路径: ${node.path}\n\n${content}`,
+        type: 'file'
+      })
+    }
+  }
+
+  const renderRemoteTree = (connectionId: string, path: string, depth = 0) => {
+    const nodes = childrenByConnection[connectionId]?.[path] || []
+    const expanded = expandedByConnection[connectionId] || []
+    const loadingPaths = loadingPathsByConnection[connectionId] || []
+
     return nodes.map((node) => {
-      const path = parentPath ? `${parentPath}/${node.name}` : node.name
-      const isExpanded = expandedDirs.has(path)
-      const hasChildren = node.children && node.children.length > 0
+      const isExpanded = expanded.includes(node.path)
+      const isPathLoading = loadingPaths.includes(node.path)
+      const childLoaded = !!childrenByConnection[connectionId]?.[node.path]
+      const canExpand = node.directory
+      
+      const isHidden = node.name.startsWith('.')
+      const isActive = !node.directory && `${connectionId}:${node.path}` === activeTabKey
+      const hiddenColor = '#b8860b' // 暗黄色
 
       return (
-        <div key={path}>
-          <button
-            onClick={() => hasChildren && toggleDir(path)}
-            className="w-full flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-white/5 transition-colors"
-            style={{ paddingLeft: `${8 + depth * 16}px`, color: colors.textSecondary }}
+        <div key={`${connectionId}:${node.path}`}>
+          <div
+            className="w-full flex items-center justify-between px-2 py-1 text-xs transition-colors group cursor-pointer"
+            style={{ 
+              paddingLeft: `${8 + depth * 14}px`, 
+              color: isActive ? colors.accent : (isHidden ? hiddenColor : colors.textSecondary),
+              backgroundColor: isActive ? `${colors.accent}15` : 'transparent',
+              opacity: isPathLoading ? 0.7 : 1,
+            }}
+            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)' }}
+            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent' }}
+            title={node.path}
           >
-            {hasChildren ? (
-              <span className="text-[10px] w-3 flex items-center justify-center" style={{ color: colors.textDim }}>
-                <svg className="w-3 h-3 transition-transform" style={{ transform: isExpanded ? '' : 'rotate(-90deg)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-              </span>
-            ) : (
-              <span className="w-3" />
-            )}
-            <svg className="w-4 h-4 shrink-0" style={{ color: node.type === 'dir' ? colors.accent : colors.textDim }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              {node.type === 'dir' ? (
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-              ) : (
-                <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline></>
-              )}
-            </svg>
-            <span className="truncate">{node.name}</span>
-          </button>
-          {isExpanded && node.children && renderTree(node.children, depth + 1, path)}
+            <div
+              className="flex items-center gap-1.5 flex-1 min-w-0"
+              onClick={() => {
+                if (node.directory) {
+                  void toggleDirectory(connectionId, node.path)
+                } else {
+                  void openFile(connectionId, node.path, node.name)
+                }
+              }}
+            >
+              {canExpand ? (
+                <span className="text-[10px] w-3 flex items-center justify-center" style={{ color: isHidden ? hiddenColor : colors.textDim }}>
+                  {isPathLoading ? (
+                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M23 4v6h-6M1 20v-6h6" />
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3 transition-transform" style={{ transform: isExpanded ? '' : 'rotate(-90deg)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  )}
+                </span>
+              ) : <span className="w-3" />}
+              <svg className="w-4 h-4 shrink-0" style={{ color: node.directory ? (isHidden ? hiddenColor : colors.accent) : (isActive ? colors.accent : (isHidden ? hiddenColor : colors.textDim)) }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                {node.directory ? (
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                ) : (
+                  <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></>
+                )}
+              </svg>
+              <span className={`truncate ${isActive ? 'font-medium' : ''}`}>{node.name}</span>
+            </div>
+            
+            <button
+              className="opacity-0 group-hover:opacity-100 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-black/20"
+              style={{ color: colors.textDim }}
+              title="添加到 AI 对话"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleAddContext(connectionId, node)
+              }}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+          </div>
+          {node.directory && isExpanded && childLoaded && renderRemoteTree(connectionId, node.path, depth + 1)}
         </div>
       )
     })
@@ -317,12 +413,72 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
           </div>
         ) : activeTab === 'files' || activeTab === 'sftp' ? (
           <div>
-            {currentConn ? (
-              <div className="py-1">{renderTree(mockFileTree)}</div>
+            {browsingConnection ? (
+              <div className="p-2 space-y-2">
+                <div>
+                  <select
+                    className="w-full text-xs rounded px-2 py-1"
+                    style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }}
+                    value={browsingConnection.id}
+                    onChange={(e) => {
+                      const id = e.target.value
+                      selectConnection(id)
+                      void switchConnection(id)
+                    }}
+                  >
+                    {connections.map((conn) => (
+                      <option key={conn.id} value={conn.id}>{conn.name} ({conn.username}@{conn.host})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="text-[11px] px-1 py-1 rounded" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <button
+                      className="px-1 rounded hover:bg-white/10"
+                      style={{ color: colors.accent }}
+                      onClick={() => void navigateToPath(browsingConnection.id, rootPath || '/')}
+                    >/</button>
+                    {crumbs.filter((c) => c !== '/').map((crumb) => (
+                      <button
+                        key={crumb}
+                        className="px-1 rounded hover:bg-white/10"
+                        style={{ color: colors.textSecondary }}
+                        onClick={() => void navigateToPath(browsingConnection.id, crumb)}
+                      >
+                        {crumb.split('/').pop()}
+                      </button>
+                    ))}
+                    {homePath && homePath !== currentPath && (
+                      <button
+                        className="ml-auto px-1 rounded hover:bg-white/10"
+                        style={{ color: colors.accent }}
+                        onClick={() => void navigateToPath(browsingConnection.id, homePath)}
+                      >
+                        Home
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {errorByConnection[browsingConnection.id] && (
+                  <div className="text-[11px] px-2 py-1 rounded" style={{ backgroundColor: `${colors.red}20`, color: colors.red }}>
+                    {errorByConnection[browsingConnection.id]}
+                  </div>
+                )}
+
+                {loadingRootByConnection[browsingConnection.id] ? (
+                  <div className="text-xs px-2 py-4 text-center" style={{ color: colors.textDim }}>目录加载中...</div>
+                ) : (
+                  <div className="py-1">
+                    {currentPath && renderRemoteTree(browsingConnection.id, currentPath)}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="text-center py-10 px-4">
                 <div className="w-12 h-12 mx-auto mb-3 rounded-lg flex items-center justify-center text-sm font-bold" style={{ backgroundColor: `${colors.accent}20`, color: colors.accent }}>
-                  SFTP
+                  FILE
                 </div>
                 <p className="text-sm mb-1" style={{ color: colors.textSecondary }}>请先选择 SSH 连接</p>
                 <p className="text-xs" style={{ color: colors.textDim }}>在「SSH 服务器」面板中添加并连接</p>

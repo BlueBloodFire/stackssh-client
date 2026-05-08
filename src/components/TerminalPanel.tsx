@@ -31,6 +31,9 @@ interface ConnectionTerminalState {
   inputFlushTimer: ReturnType<typeof setTimeout> | null
 }
 
+/** 全局终端会话存储 - 保持跨组件的会话 */
+const globalTerminalStates = new Map<string, ConnectionTerminalState>()
+
 /** 轮询间隔（ms） */
 const POLL_INTERVAL = 50
 
@@ -46,17 +49,22 @@ interface ContextMenuPos {
   y: number
 }
 
-export function TerminalPanel({
-  onTerminalSessionChange,
-}: {
-  /** 终端会话变化回调 */
+interface TerminalPanelProps {
   onTerminalSessionChange?: (sessionId: string | null) => void
-}) {
+  /** 是否在组件卸载时保留终端会话（默认 true，实现切换标签页保持连接） */
+  keepSessionOnUnmount?: boolean
+}
+
+export function TerminalPanel({ 
+  onTerminalSessionChange, 
+  keepSessionOnUnmount = true 
+}: TerminalPanelProps) {
   const { colors } = useThemeStore()
   const { currentConnectionId, connections, connect, disconnect } = useConnectionStore()
   const { addInputTag } = useSshAgentStore()
 
-  const terminalStates = useRef<Map<string, ConnectionTerminalState>>(new Map())
+  // 使用全局终端状态而不是组件内状态
+  const terminalStates = useRef<Map<string, ConnectionTerminalState>>(globalTerminalStates)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const activeConnectionIdRef = useRef<string | null>(null)
 
@@ -201,18 +209,29 @@ export function TerminalPanel({
     state.onDataDisposable?.dispose()
     state.resizeObserver?.disconnect()
     state.terminal.dispose()
-    state.container.remove()
+    if (state.container.parentNode) {
+      state.container.remove()
+    }
 
     terminalStates.current.delete(connectionId)
   }, [stopPolling])
 
   /** 创建并打开终端会话 */
   const openTerminalSession = useCallback(async (connectionId: string) => {
+    // 检查是否已经有一个会话了
     const existingState = terminalStates.current.get(connectionId)
-    if (existingState && existingState.connecting) return
-    if (existingState && existingState.session && !existingState.disconnected) return
-    if (existingState && existingState.disconnected) {
-      destroyTerminal(connectionId)
+    if (existingState) {
+      if (existingState.connecting) return
+      if (existingState.session && !existingState.disconnected) {
+        // 会话已经存在，只需要重新附加到 DOM
+        if (wrapperRef.current && !existingState.container.parentNode) {
+          wrapperRef.current.appendChild(existingState.container)
+        }
+        return
+      }
+      if (existingState.disconnected) {
+        destroyTerminal(connectionId)
+      }
     }
 
     if (!wrapperRef.current) return
@@ -363,21 +382,32 @@ export function TerminalPanel({
     } finally {
       state.connecting = false
     }
-  }, [createTerminalInstance, destroyTerminal, startPolling])
+  }, [createTerminalInstance, destroyTerminal, startPolling, currentConnectionId, onTerminalSessionChange])
 
   /** 切换终端显示 */
   useEffect(() => {
     activeConnectionIdRef.current = currentConnectionId
-    terminalStates.current.forEach((state, connId) => {
-      const isActive = connId === currentConnectionId
-      state.container.style.visibility = isActive ? 'visible' : 'hidden'
-      state.container.style.zIndex = isActive ? '1' : '0'
-      if (isActive && state.session && !state.disconnected) {
-        requestAnimationFrame(() => {
-          state.terminal.focus()
-        })
+    
+    // 先确保所有终端容器从 DOM 移除
+    terminalStates.current.forEach((state) => {
+      if (state.container.parentNode) {
+        state.container.parentNode.removeChild(state.container)
       }
     })
+
+    // 然后添加当前连接的终端到 DOM
+    if (currentConnectionId && wrapperRef.current) {
+      const currentState = terminalStates.current.get(currentConnectionId)
+      if (currentState) {
+        wrapperRef.current.appendChild(currentState.container)
+        currentState.container.style.visibility = 'visible'
+        currentState.container.style.zIndex = '1'
+        requestAnimationFrame(() => {
+          currentState.terminal.focus()
+        })
+      }
+    }
+
     // 切换连接时通知父组件当前会话ID
     const activeState = currentConnectionId ? terminalStates.current.get(currentConnectionId) : undefined
     onTerminalSessionChange?.(activeState?.session?.sessionId ?? null)
@@ -398,20 +428,31 @@ export function TerminalPanel({
         openTerminalSession(currentConn.id)
       }
     } else {
-      if (state) {
+      if (state && !keepSessionOnUnmount) {
         destroyTerminal(currentConn.id)
       }
     }
-  }, [currentConn, openTerminalSession, destroyTerminal])
+  }, [currentConn, openTerminalSession, destroyTerminal, keepSessionOnUnmount])
 
-  /** 组件卸载清理 */
+  /** 组件卸载清理 - 根据配置决定是否保留会话 */
   useEffect(() => {
     return () => {
-      terminalStates.current.forEach((_, connId) => {
-        destroyTerminal(connId)
-      })
+      if (!keepSessionOnUnmount) {
+        // 完全清理模式 - 销毁所有会话
+        terminalStates.current.forEach((_, connId) => {
+          destroyTerminal(connId)
+        })
+      } else {
+        // 保留会话模式 - 只停止轮询和从 DOM 移除，不关闭后端会话
+        terminalStates.current.forEach((state) => {
+          stopPolling(state)
+          if (state.container.parentNode) {
+            state.container.parentNode.removeChild(state.container)
+          }
+        })
+      }
     }
-  }, [destroyTerminal])
+  }, [destroyTerminal, stopPolling, keepSessionOnUnmount])
 
   /** 重新连接 */
   const handleReconnect = useCallback((connectionId: string) => {
@@ -471,7 +512,7 @@ export function TerminalPanel({
   const isConnected = currentConn.status === ConnectionStatus.CONNECTED
 
   return (
-    <div className="flex-1 flex flex-col min-w-0" style={{ backgroundColor: colors.bgPrimary }}>
+    <div className="h-full flex flex-col min-w-0" style={{ backgroundColor: colors.bgPrimary }}>
       {/* 终端工具栏 */}
       <div className="h-9 flex items-center justify-between px-3 border-b flex-shrink-0" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
         <div className="flex items-center gap-2">
@@ -511,6 +552,7 @@ export function TerminalPanel({
               </button>
               <button
                 onClick={async () => {
+                  // 断开时完全清理会话
                   destroyTerminal(currentConn.id)
                   await disconnect(currentConn.id)
                 }}
