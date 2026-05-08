@@ -1,19 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { ConnectionStatus } from '../types'
 import { SSHConnectionModal } from './SSHConnectionModal'
 import { useFileExplorerStore } from '../stores/fileExplorerStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
-import { getFileContent } from '../api/sshFile'
+import { getFileContent, createFile, createDirectory, renameFile, deleteFile } from '../api/sshFile'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
-interface LeftSidebarProps {
-  activeTab: TabId
-}
-
-/** 连接状态对应颜色 */
 function statusColor(status: number, colors: any): string {
   switch (status) {
     case ConnectionStatus.CONNECTED: return colors.green
@@ -23,7 +18,6 @@ function statusColor(status: number, colors: any): string {
   }
 }
 
-/** 连接状态对应文字 */
 function statusText(status: number): string {
   switch (status) {
     case ConnectionStatus.CONNECTED: return '已连接'
@@ -33,7 +27,33 @@ function statusText(status: number): string {
   }
 }
 
-export function LeftSidebar({ activeTab }: LeftSidebarProps) {
+interface FileNode {
+  name: string
+  path: string
+  directory: boolean
+  size: number | null
+  modifiedAt: number | null
+}
+
+interface ContextMenuState {
+  visible: boolean
+  x: number
+  y: number
+  node: FileNode | null
+  connectionId: string
+  parentPath: string
+}
+
+interface DialogState {
+  type: 'create-file' | 'create-directory' | 'rename' | 'delete' | null
+  title: string
+  node: FileNode | null
+  connectionId: string
+  parentPath: string
+  initialValue: string
+}
+
+export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
   const { colors } = useThemeStore()
   const { connections, currentConnectionId, selectConnection, fetchConnections, removeConnection, connect, disconnect, loading, error, clearError } = useConnectionStore()
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -53,15 +73,34 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
     navigateToPath,
     toggleDirectory,
     openFile,
+    refreshDirectory,
   } = useFileExplorerStore()
 
   const currentConn = connections.find((c) => c.id === currentConnectionId)
 
-  // 新增：管理弹窗状态
   const [modalOpen, setModalOpen] = useState(false)
   const [editingConn, setEditingConn] = useState<{ id: string; name: string; host: string; port: number; username: string; authType: number } | null>(null)
 
-  // 首次挂载加载连接列表
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    node: null,
+    connectionId: '',
+    parentPath: '',
+  })
+
+  const [dialog, setDialog] = useState<DialogState>({
+    type: null,
+    title: '',
+    node: null,
+    connectionId: '',
+    parentPath: '',
+    initialValue: '',
+  })
+
+  const dialogInputRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     fetchConnections()
   }, [fetchConnections])
@@ -124,13 +163,13 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
     return result
   }, [currentPath])
 
-  const handleAddContext = async (connectionId: string, node: any) => {
+  const handleAddContext = async (connectionId: string, node: FileNode) => {
     const store = useSshAgentStore.getState()
     if (node.directory) {
       const children = childrenByConnection[connectionId]?.[node.path]
       let filesList = ''
       if (children && children.length > 0) {
-        filesList = `\n目录内容预览:\n` + children.map((c: any) => `  ${c.directory ? '📁' : '📄'} ${c.name}`).join('\n')
+        filesList = `\n目录内容预览:\n` + children.map((c: FileNode) => `  ${c.directory ? '📁' : '📄'} ${c.name}`).join('\n')
       }
       store.addInputTag({
         label: `目录: ${node.name}`,
@@ -138,26 +177,263 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
         type: 'custom'
       })
     } else {
-      // 添加文件，先从 openTabs 找，如果没有则调 API
       const key = `${connectionId}:${node.path}`
       const existingTab = useFileExplorerStore.getState().openTabs.find(t => t.key === key)
       let content = existingTab?.content
       
       if (!content) {
         const res = await getFileContent(connectionId, node.path)
-        if (res.code === '0000' && res.data) {
-          content = res.data.content
-        } else {
-          return // 获取失败
-        }
+        if (res.code === '0000' && res.data) content = res.data.content
       }
       
       store.addInputTag({
         label: `文件: ${node.name}`,
-        fullContent: `文件路径: ${node.path}\n\n${content}`,
+        fullContent: `文件路径: ${node.path}\n\n${content || ''}`,
         type: 'file'
       })
     }
+  }
+
+  const handleContextMenu = (e: React.MouseEvent, node: FileNode | null, connectionId: string, parentPath: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      node,
+      connectionId,
+      parentPath,
+    })
+  }
+
+  const closeContextMenu = () => {
+    setContextMenu(prev => ({ ...prev, visible: false }))
+  }
+
+  useEffect(() => {
+    if (contextMenu.visible) {
+      const handleClick = () => closeContextMenu()
+      document.addEventListener('click', handleClick)
+      return () => document.removeEventListener('click', handleClick)
+    }
+  }, [contextMenu.visible])
+
+  const openDialog = (type: DialogState['type'], title: string, node: FileNode | null, connectionId: string, parentPath: string, initialValue: string = '') => {
+    closeContextMenu()
+    setDialog({ type, title, node, connectionId, parentPath, initialValue })
+  }
+
+  const closeDialog = () => {
+    setDialog({ type: null, title: '', node: null, connectionId: '', parentPath: '', initialValue: '' })
+  }
+
+  useEffect(() => {
+    if (dialog.type && dialogInputRef.current) {
+      setTimeout(() => dialogInputRef.current?.focus(), 50)
+    }
+  }, [dialog.type])
+
+  const handleFileAction = async (value: string) => {
+    if (!dialog.type) return
+
+    try {
+      if (dialog.type === 'create-file') {
+        const filePath = dialog.parentPath === '/' ? `/${value}` : `${dialog.parentPath}/${value}`
+        const res = await createFile(dialog.connectionId, filePath)
+        if (res.code !== '0000') {
+          alert(`创建失败: ${res.info}`)
+          return
+        }
+        await refreshDirectory(dialog.connectionId, dialog.parentPath)
+      } else if (dialog.type === 'create-directory') {
+        const dirPath = dialog.parentPath === '/' ? `/${value}` : `${dialog.parentPath}/${value}`
+        const res = await createDirectory(dialog.connectionId, dirPath)
+        if (res.code !== '0000') {
+          alert(`创建失败: ${res.info}`)
+          return
+        }
+        await refreshDirectory(dialog.connectionId, dialog.parentPath)
+      } else if (dialog.type === 'rename' && dialog.node) {
+        const node = dialog.node as FileNode
+        const parentPath = node.path ? (node.path.substring(0, node.path.lastIndexOf('/')) || '/') : '/'
+        const newPath = parentPath === '/' ? `/${value}` : `${parentPath}/${value}`
+        const res = await renameFile(dialog.connectionId, node.path, newPath)
+        if (res.code !== '0000') {
+          alert(`重命名失败: ${res.info}`)
+          return
+        }
+        await refreshDirectory(dialog.connectionId, parentPath)
+      } else if (dialog.type === 'delete' && dialog.node) {
+        const node = dialog.node as FileNode
+        const res = await deleteFile(dialog.connectionId, node.path)
+        if (res.code !== '0000') {
+          alert(`删除失败: ${res.info}`)
+          return
+        }
+        const parentPath = node.path ? (node.path.substring(0, node.path.lastIndexOf('/')) || '/') : '/'
+        await refreshDirectory(dialog.connectionId, parentPath)
+      }
+    } catch (error) {
+      console.error('文件操作失败:', error)
+      alert('操作失败，请检查控制台日志')
+    }
+
+    closeDialog()
+  }
+
+  const renderContextMenu = () => {
+    if (!contextMenu.visible) return null
+
+    const node = contextMenu.node
+    const isOnDirectory = !node || node.directory
+
+    return (
+      <div
+        className="fixed z-50 rounded-md shadow-lg border py-1 min-w-[160px]"
+        style={{
+          left: Math.min(contextMenu.x, window.innerWidth - 170),
+          top: Math.min(contextMenu.y, window.innerHeight - 200),
+          backgroundColor: colors.bgSecondary,
+          borderColor: colors.border,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {isOnDirectory && (
+          <>
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 flex items-center gap-2 transition-colors"
+              style={{ color: colors.text }}
+              onClick={() => openDialog('create-file', '新建文件', null, contextMenu.connectionId, node?.directory ? node.path : contextMenu.parentPath)}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="11" x2="12" y2="17"></line>
+                <line x1="9" y1="14" x2="15" y2="14"></line>
+              </svg>
+              新建文件
+            </button>
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 flex items-center gap-2 transition-colors"
+              style={{ color: colors.text }}
+              onClick={() => openDialog('create-directory', '新建文件夹', null, contextMenu.connectionId, node?.directory ? node.path : contextMenu.parentPath)}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                <line x1="12" y1="11" x2="12" y2="17"></line>
+                <line x1="9" y1="14" x2="15" y2="14"></line>
+              </svg>
+              新建文件夹
+            </button>
+            <div style={{ height: 1, backgroundColor: colors.border, margin: '4px 0' }} />
+          </>
+        )}
+
+        {node && (
+          <>
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 flex items-center gap-2 transition-colors"
+              style={{ color: colors.text }}
+              onClick={() => openDialog('rename', '重命名', node, contextMenu.connectionId, '', node.name)}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+              重命名
+            </button>
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 flex items-center gap-2 transition-colors"
+              style={{ color: colors.red }}
+              onClick={() => openDialog('delete', '确认删除', node, contextMenu.connectionId, '')}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              删除
+            </button>
+            <div style={{ height: 1, backgroundColor: colors.border, margin: '4px 0' }} />
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 flex items-center gap-2 transition-colors"
+              style={{ color: colors.text }}
+              onClick={() => {
+                handleAddContext(contextMenu.connectionId, node)
+                closeContextMenu()
+              }}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke={colors.accent} strokeWidth="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              添加到 AI 对话
+            </button>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  const renderDialog = () => {
+    if (!dialog.type) return null
+
+    const isDelete = dialog.type === 'delete'
+    const node = dialog.node as FileNode
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+        <div
+          className="rounded-lg shadow-lg border p-4 w-full max-w-sm"
+          style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="text-sm font-medium mb-3" style={{ color: colors.text }}>{dialog.title}</h3>
+          
+          {!isDelete ? (
+            <input
+              ref={dialogInputRef}
+              type="text"
+              className="w-full px-2 py-1.5 rounded text-xs mb-4"
+              style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }}
+              defaultValue={dialog.initialValue}
+              placeholder="请输入名称"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleFileAction((e.target as HTMLInputElement).value)
+                else if (e.key === 'Escape') closeDialog()
+              }}
+            />
+          ) : (
+            <p className="text-xs mb-4" style={{ color: colors.textDim }}>
+              确定要删除 <span style={{ color: colors.accent, fontWeight: 500 }}>{node?.name || ''}</span> 吗？
+              {node?.directory ? ' 此操作将递归删除该目录下的所有内容。' : ''}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <button
+              className="px-3 py-1.5 rounded text-xs transition-colors"
+              style={{ color: colors.textSecondary, backgroundColor: 'transparent' }}
+              onClick={closeDialog}
+            >
+              取消
+            </button>
+            <button
+              className="px-3 py-1.5 rounded text-xs transition-colors"
+              style={{ color: '#ffffff', backgroundColor: isDelete ? colors.red : colors.accent }}
+              onClick={() => {
+                if (!isDelete && dialogInputRef.current) {
+                  handleFileAction(dialogInputRef.current.value)
+                } else if (isDelete) {
+                  handleFileAction('')
+                }
+              }}
+            >
+              {isDelete ? '确认删除' : '确定'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const renderRemoteTree = (connectionId: string, path: string, depth = 0) => {
@@ -165,7 +441,7 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
     const expanded = expandedByConnection[connectionId] || []
     const loadingPaths = loadingPathsByConnection[connectionId] || []
 
-    return nodes.map((node) => {
+    return nodes.map((node: FileNode) => {
       const isExpanded = expanded.includes(node.path)
       const isPathLoading = loadingPaths.includes(node.path)
       const childLoaded = !!childrenByConnection[connectionId]?.[node.path]
@@ -173,33 +449,20 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
       
       const isHidden = node.name.startsWith('.')
       const isActive = !node.directory && `${connectionId}:${node.path}` === activeTabKey
-      const hiddenColor = '#b8860b' // 暗黄色
+      const hiddenColor = '#b8860b'
 
       return (
         <div key={`${connectionId}:${node.path}`}>
           <div
             className="w-full flex items-center justify-between px-2 py-1 text-xs transition-colors group cursor-pointer"
-            style={{ 
-              paddingLeft: `${8 + depth * 14}px`, 
-              color: isActive ? colors.accent : (isHidden ? hiddenColor : colors.textSecondary),
-              backgroundColor: isActive ? `${colors.accent}15` : 'transparent',
-              opacity: isPathLoading ? 0.7 : 1,
-            }}
+            style={{ paddingLeft: `${8 + depth * 14}px`, color: isActive ? colors.accent : (isHidden ? hiddenColor : colors.textSecondary), backgroundColor: isActive ? `${colors.accent}15` : 'transparent', opacity: isPathLoading ? 0.7 : 1 }}
             onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)' }}
             onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent' }}
+            onContextMenu={(e) => handleContextMenu(e, node, connectionId, path)}
             title={node.path}
           >
-            <div
-              className="flex items-center gap-1.5 flex-1 min-w-0"
-              onClick={() => {
-                if (node.directory) {
-                  void toggleDirectory(connectionId, node.path)
-                } else {
-                  void openFile(connectionId, node.path, node.name)
-                }
-              }}
-            >
-              {canExpand ? (
+            <div className="flex items-center gap-1.5 flex-1 min-w-0" onClick={() => node.directory ? void toggleDirectory(connectionId, node.path) : void openFile(connectionId, node.path, node.name)}>
+              {canExpand && (
                 <span className="text-[10px] w-3 flex items-center justify-center" style={{ color: isHidden ? hiddenColor : colors.textDim }}>
                   {isPathLoading ? (
                     <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -212,7 +475,7 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
                     </svg>
                   )}
                 </span>
-              ) : <span className="w-3" />}
+              )}
               <svg className="w-4 h-4 shrink-0" style={{ color: node.directory ? (isHidden ? hiddenColor : colors.accent) : (isActive ? colors.accent : (isHidden ? hiddenColor : colors.textDim)) }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 {node.directory ? (
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -223,15 +486,7 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
               <span className={`truncate ${isActive ? 'font-medium' : ''}`}>{node.name}</span>
             </div>
             
-            <button
-              className="opacity-0 group-hover:opacity-100 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-black/20"
-              style={{ color: colors.textDim }}
-              title="添加到 AI 对话"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleAddContext(connectionId, node)
-              }}
-            >
+            <button className="opacity-0 group-hover:opacity-100 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-black/20" style={{ color: colors.textDim }} title="添加到 AI 对话" onClick={(e) => { e.stopPropagation(); handleAddContext(connectionId, node) }}>
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -244,7 +499,6 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
     })
   }
 
-  // 标题映射
   const tabLabels: Record<TabId, string> = {
     servers: 'SSH 服务器',
     files: '文件目录',
@@ -253,27 +507,11 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
   }
 
   return (
-    <div
-      className="flex flex-col h-full min-w-0"
-      style={{ backgroundColor: colors.bgSecondary }}
-    >
-      {/* Header */}
-      <div
-        className="h-9 flex items-center justify-between px-4 border-b flex-shrink-0"
-        style={{ borderColor: colors.border }}
-      >
-        <span className="text-xs font-medium uppercase tracking-wider" style={{ color: colors.textSecondary }}>
-          {tabLabels[activeTab]}
-        </span>
+    <div className="flex flex-col h-full min-w-0" style={{ backgroundColor: colors.bgSecondary }}>
+      <div className="h-9 flex items-center justify-between px-4 border-b flex-shrink-0" style={{ borderColor: colors.border }}>
+        <span className="text-xs font-medium uppercase tracking-wider" style={{ color: colors.textSecondary }}>{tabLabels[activeTab]}</span>
         {activeTab === 'servers' && (
-          <button
-            onClick={handleRefresh}
-            className="w-5 h-5 flex items-center justify-center rounded transition-colors"
-            style={{ color: colors.textDim }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = colors.accent }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = colors.textDim }}
-            title="刷新连接列表"
-          >
+          <button onClick={handleRefresh} className="w-5 h-5 flex items-center justify-center rounded transition-colors" style={{ color: colors.textDim }} onMouseEnter={(e) => { e.currentTarget.style.color = colors.accent }} onMouseLeave={(e) => { e.currentTarget.style.color = colors.textDim }} title="刷新连接列表">
             <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M23 4v6h-6M1 20v-6h6" />
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
@@ -281,28 +519,20 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
           </button>
         )}
         {currentConn && activeTab === 'files' && (
-          <span className="ml-2 text-xs font-mono truncate" style={{ color: colors.textDim }}>
-            — {currentConn.name}
-          </span>
+          <span className="ml-2 text-xs font-mono truncate" style={{ color: colors.textDim }}>— {currentConn.name}</span>
         )}
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'servers' ? (
           <div className="p-2">
-            {/* 错误提示 */}
             {error && (
-              <div
-                className="flex items-center justify-between gap-2 px-3 py-2 mb-2 rounded-md text-[11px]"
-                style={{ backgroundColor: `${colors.red}15`, color: colors.red, border: `1px solid ${colors.red}30` }}
-              >
+              <div className="flex items-center justify-between gap-2 px-3 py-2 mb-2 rounded-md text-[11px]" style={{ backgroundColor: `${colors.red}15`, color: colors.red, border: `1px solid ${colors.red}30` }}>
                 <span className="truncate">{error}</span>
                 <button onClick={clearError} className="flex-shrink-0 opacity-60 hover:opacity-100">✕</button>
               </div>
             )}
 
-            {/* 加载状态 */}
             {loading && connections.length === 0 ? (
               <div className="flex items-center justify-center py-10 gap-2">
                 <svg className="w-4 h-4 animate-spin" style={{ color: colors.accent }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -327,68 +557,21 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
                   const active = currentConnectionId === conn.id
                   const isDeleting = deletingId === conn.id
                   return (
-                    <div
-                      key={conn.id}
-                      onClick={() => selectConnection(conn.id)}
-                      className={`w-full text-left px-3 py-2.5 rounded-md transition-colors group cursor-pointer relative ${active ? 'ring-0' : ''}`}
-                      style={{
-                        backgroundColor: active ? `${colors.accent}15` : undefined,
-                        borderLeft: active ? `3px solid ${colors.accent}` : '3px solid transparent',
-                      }}
-                      onMouseEnter={(e) => { if (!active) e.currentTarget.style.backgroundColor = `${colors.textDim}08` }}
-                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '' }}
-                    >
+                    <div key={conn.id} onClick={() => selectConnection(conn.id)} className="w-full text-left px-3 py-2.5 rounded-md transition-colors group cursor-pointer relative" style={{ backgroundColor: active ? `${colors.accent}15` : undefined, borderLeft: active ? `3px solid ${colors.accent}` : '3px solid transparent' }} onMouseEnter={(e) => { if (!active) e.currentTarget.style.backgroundColor = `${colors.textDim}08` }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '' }}>
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(conn.status, colors) }} />
-                        <span className="text-xs font-medium truncate" style={{ color: active ? colors.text : colors.textSecondary }}>
-                          {conn.name}
-                        </span>
-                        <span className="text-[10px] px-1 py-0 rounded" style={{ color: statusColor(conn.status, colors), backgroundColor: `${statusColor(conn.status, colors)}15` }}>
-                          {statusText(conn.status)}
-                        </span>
-                        {/* 连接/断开开关 */}
-                        <button
-                          onClick={(e) => handleToggleConnection(e, conn)}
-                          disabled={connectingId === conn.id}
-                          className={`w-8 h-4 rounded-full relative transition-colors flex-shrink-0 ${connectingId === conn.id ? 'opacity-50' : ''}`}
-                          style={{
-                            backgroundColor: conn.status === ConnectionStatus.CONNECTED ? colors.green : colors.textDim + '40',
-                          }}
-                          title={conn.status === ConnectionStatus.CONNECTED ? '断开连接' : '建立连接'}
-                        >
-                          <span
-                            className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all"
-                            style={{
-                              left: conn.status === ConnectionStatus.CONNECTED ? '18px' : '2px',
-                            }}
-                          />
+                        <span className="text-xs font-medium truncate" style={{ color: active ? colors.text : colors.textSecondary }}>{conn.name}</span>
+                        <span className="text-[10px] px-1 py-0 rounded" style={{ color: statusColor(conn.status, colors), backgroundColor: `${statusColor(conn.status, colors)}15` }}>{statusText(conn.status)}</span>
+                        <button onClick={(e) => handleToggleConnection(e, conn)} disabled={connectingId === conn.id} className="w-8 h-4 rounded-full relative transition-colors flex-shrink-0" style={{ backgroundColor: conn.status === ConnectionStatus.CONNECTED ? colors.green : colors.textDim + '40', opacity: connectingId === conn.id ? 0.5 : 1 }} title={conn.status === ConnectionStatus.CONNECTED ? '断开连接' : '建立连接'}>
+                          <span className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all" style={{ left: conn.status === ConnectionStatus.CONNECTED ? '18px' : '2px' }} />
                         </button>
-                        {/* 编辑按钮 */}
-                        <button
-                          onClick={(e) => handleEdit(e, {
-                            id: conn.id,
-                            name: conn.name,
-                            host: conn.host,
-                            port: conn.port,
-                            username: conn.username,
-                            authType: conn.authType,
-                          })}
-                          className="opacity-0 group-hover:opacity-60 hover:!opacity-100 w-5 h-5 flex items-center justify-center rounded transition-opacity flex-shrink-0"
-                          style={{ color: colors.textDim }}
-                          title="编辑连接"
-                        >
+                        <button onClick={(e) => handleEdit(e, conn)} className="opacity-0 group-hover:opacity-60 hover:!opacity-100 w-5 h-5 flex items-center justify-center rounded transition-opacity flex-shrink-0" style={{ color: colors.textDim }} title="编辑连接">
                           <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
                         </button>
-                        {/* 删除按钮 */}
-                        <button
-                          onClick={(e) => handleDelete(e, conn.id)}
-                          className="ml-auto opacity-0 group-hover:opacity-60 hover:!opacity-100 w-5 h-5 flex items-center justify-center rounded transition-opacity flex-shrink-0"
-                          style={{ color: colors.textDim }}
-                          title="删除连接"
-                        >
+                        <button onClick={(e) => handleDelete(e, conn.id)} className="ml-auto opacity-0 group-hover:opacity-60 hover:!opacity-100 w-5 h-5 flex items-center justify-center rounded transition-opacity flex-shrink-0" style={{ color: colors.textDim }} title="删除连接">
                           {isDeleting ? (
                             <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <path d="M23 4v6h-6M1 20v-6h6" />
@@ -402,9 +585,7 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
                           )}
                         </button>
                       </div>
-                      <div className="text-[11px] font-mono truncate pl-4" style={{ color: colors.textDim }}>
-                        {conn.username}@{conn.host}:{conn.port}
-                      </div>
+                      <div className="text-[11px] font-mono truncate pl-4" style={{ color: colors.textDim }}>{conn.username}@{conn.host}:{conn.port}</div>
                     </div>
                   )
                 })}
@@ -412,74 +593,33 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
             )}
           </div>
         ) : activeTab === 'files' || activeTab === 'sftp' ? (
-          <div>
+          <div onContextMenu={(e) => { if (browsingConnectionId && currentPath) handleContextMenu(e, null, browsingConnectionId, currentPath) }}>
             {browsingConnection ? (
               <div className="p-2 space-y-2">
                 <div>
-                  <select
-                    className="w-full text-xs rounded px-2 py-1"
-                    style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }}
-                    value={browsingConnection.id}
-                    onChange={(e) => {
-                      const id = e.target.value
-                      selectConnection(id)
-                      void switchConnection(id)
-                    }}
-                  >
-                    {connections.map((conn) => (
-                      <option key={conn.id} value={conn.id}>{conn.name} ({conn.username}@{conn.host})</option>
-                    ))}
+                  <select className="w-full text-xs rounded px-2 py-1" style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }} value={browsingConnection.id} onChange={(e) => { const id = e.target.value; selectConnection(id); void switchConnection(id) }}>
+                    {connections.map((conn) => <option key={conn.id} value={conn.id}>{conn.name} ({conn.username}@{conn.host})</option>)}
                   </select>
                 </div>
-
                 <div className="text-[11px] px-1 py-1 rounded" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
                   <div className="flex items-center gap-1 flex-wrap">
-                    <button
-                      className="px-1 rounded hover:bg-white/10"
-                      style={{ color: colors.accent }}
-                      onClick={() => void navigateToPath(browsingConnection.id, rootPath || '/')}
-                    >/</button>
-                    {crumbs.filter((c) => c !== '/').map((crumb) => (
-                      <button
-                        key={crumb}
-                        className="px-1 rounded hover:bg-white/10"
-                        style={{ color: colors.textSecondary }}
-                        onClick={() => void navigateToPath(browsingConnection.id, crumb)}
-                      >
-                        {crumb.split('/').pop()}
-                      </button>
-                    ))}
-                    {homePath && homePath !== currentPath && (
-                      <button
-                        className="ml-auto px-1 rounded hover:bg-white/10"
-                        style={{ color: colors.accent }}
-                        onClick={() => void navigateToPath(browsingConnection.id, homePath)}
-                      >
-                        Home
-                      </button>
-                    )}
+                    <button className="px-1 rounded hover:bg-white/10" style={{ color: colors.accent }} onClick={() => void navigateToPath(browsingConnection.id, rootPath || '/')}>/</button>
+                    {crumbs.filter((c) => c !== '/').map((crumb) => <button key={crumb} className="px-1 rounded hover:bg-white/10" style={{ color: colors.textSecondary }} onClick={() => void navigateToPath(browsingConnection.id, crumb)}>{crumb.split('/').pop()}</button>)}
+                    {homePath && homePath !== currentPath && <button className="ml-auto px-1 rounded hover:bg-white/10" style={{ color: colors.accent }} onClick={() => void navigateToPath(browsingConnection.id, homePath)}>Home</button>}
                   </div>
                 </div>
-
                 {errorByConnection[browsingConnection.id] && (
-                  <div className="text-[11px] px-2 py-1 rounded" style={{ backgroundColor: `${colors.red}20`, color: colors.red }}>
-                    {errorByConnection[browsingConnection.id]}
-                  </div>
+                  <div className="text-[11px] px-2 py-1 rounded" style={{ backgroundColor: `${colors.red}20`, color: colors.red }}>{errorByConnection[browsingConnection.id]}</div>
                 )}
-
                 {loadingRootByConnection[browsingConnection.id] ? (
                   <div className="text-xs px-2 py-4 text-center" style={{ color: colors.textDim }}>目录加载中...</div>
                 ) : (
-                  <div className="py-1">
-                    {currentPath && renderRemoteTree(browsingConnection.id, currentPath)}
-                  </div>
+                  <div className="py-1">{currentPath && renderRemoteTree(browsingConnection.id, currentPath)}</div>
                 )}
               </div>
             ) : (
               <div className="text-center py-10 px-4">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-lg flex items-center justify-center text-sm font-bold" style={{ backgroundColor: `${colors.accent}20`, color: colors.accent }}>
-                  FILE
-                </div>
+                <div className="w-12 h-12 mx-auto mb-3 rounded-lg flex items-center justify-center text-sm font-bold" style={{ backgroundColor: `${colors.accent}20`, color: colors.accent }}>FILE</div>
                 <p className="text-sm mb-1" style={{ color: colors.textSecondary }}>请先选择 SSH 连接</p>
                 <p className="text-xs" style={{ color: colors.textDim }}>在「SSH 服务器」面板中添加并连接</p>
               </div>
@@ -499,12 +639,9 @@ export function LeftSidebar({ activeTab }: LeftSidebarProps) {
         )}
       </div>
 
-      {/* SSH 连接弹窗：新建 / 编辑 */}
-      <SSHConnectionModal
-        open={modalOpen}
-        onClose={handleCloseModal}
-        editingConnection={editingConn}
-      />
+      <SSHConnectionModal open={modalOpen} onClose={handleCloseModal} editingConnection={editingConn} />
+      {renderContextMenu()}
+      {renderDialog()}
     </div>
   )
 }

@@ -12,17 +12,12 @@ import { useThemeStore } from '../stores/themeStore'
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
 /**
- * MainView V3 - SSH 会话优化版
+ * MainView V3 - SSH 会话优化版 + 文件页内置终端
  *
  * 优化内容：
- * 1. 终端会话保持在全局层级，不因标签页切换而销毁
- * 2. 从文件目录切回 SSH 服务器时，连接保持
+ * 1. 终端会话保持，不因标签页切换而销毁
+ * 2. 在文件标签页也可以查看终端，支持多种布局模式
  * 3. 终端与工作区共用同一套连接会话
- *
- * 集成 SSH 智能体交互功能：
- * 1. 终端会话变化时通知右侧 AI 面板
- * 2. 终端选中内容可右键添加到对话
- * 3. AI 面板自动绑定当前 SSH 连接
  */
 export function MainView() {
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -139,33 +134,29 @@ export function MainView() {
 
         {/* 中间：根据左侧 Tab 切换工作区 */}
         <div className="flex-1 min-w-0 overflow-hidden relative">
-          {/* 全局终端面板 - 始终保持挂载，只控制可见性 */}
-          <div 
-            className="absolute inset-0 z-10"
-            style={{ 
-              display: activeTab === 'servers' && terminalVisible ? 'block' : 'none',
-            }}
-          >
-            <TerminalPanel onTerminalSessionChange={handleTerminalSessionChange} />
-          </div>
-
-          {/* 服务器标签页 - 终端隐藏时的提示 */}
-          {activeTab === 'servers' && !terminalVisible && (
-            <div className="h-full flex items-center justify-center">
-              <p className="text-sm" style={{ color: colors.textDim }}>终端已隐藏 (按 ⌘` 显示)</p>
+          {/* SSH 服务器标签页 - 只显示终端 */}
+          {activeTab === 'servers' && (
+            <div className="h-full min-w-0">
+              {terminalVisible ? (
+                <TerminalPanel onTerminalSessionChange={handleTerminalSessionChange} />
+              ) : (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-sm" style={{ color: colors.textDim }}>终端已隐藏 (按 ⌘` 显示)</p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* 文件/工作区标签页 */}
+          {/* 文件/SFTP 标签页 - 内置多模式终端 */}
           {(activeTab === 'files' || activeTab === 'sftp') && (
             <WorkbenchPanel
               terminalVisible={terminalVisible}
               onTerminalSessionChange={handleTerminalSessionChange}
-              // 传入一个标志，表示终端已经在全局管理了
-              globalTerminalManaged={true}
+              globalTerminalManaged={false} // 文件页自己管理终端
             />
           )}
 
+          {/* 扩展标签页 */}
           {activeTab === 'extensions' && (
             <div className="h-full flex items-center justify-center">
               <p className="text-sm" style={{ color: colors.textDim }}>扩展面板开发中</p>

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getFileContent, getFileTree } from '../api/sshFile'
+import { getFileContent, getFileTree, saveFileContent } from '../api/sshFile'
 
 export interface FileNode {
   name: string
@@ -19,6 +19,7 @@ export interface OpenFileTab {
   binary: boolean
   truncated: boolean
   error?: string
+  modified?: boolean
 }
 
 interface FileExplorerStore {
@@ -39,8 +40,11 @@ interface FileExplorerStore {
   navigateToPath: (connectionId: string, path: string) => Promise<void>
   toggleDirectory: (connectionId: string, path: string) => Promise<void>
   refreshCurrentPath: (connectionId: string) => Promise<void>
+  refreshDirectory: (connectionId: string, path: string) => Promise<void>
 
   openFile: (connectionId: string, path: string, name: string) => Promise<void>
+  updateFileContent: (key: string, content: string) => void
+  saveFile: (key: string, useSudo?: boolean) => Promise<boolean>
   setActiveTab: (key: string) => void
   closeTab: (key: string) => void
   closeTabsToLeft: (key: string) => void
@@ -192,6 +196,10 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
     await get().navigateToPath(connectionId, currentPath)
   },
 
+  refreshDirectory: async (connectionId, path) => {
+    await get().navigateToPath(connectionId, path)
+  },
+
   openFile: async (connectionId, path, name) => {
     const key = tabKeyOf(connectionId, path)
     const existing = get().openTabs.find((tab) => tab.key === key)
@@ -210,6 +218,7 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
         loading: true,
         binary: false,
         truncated: false,
+        modified: false,
       }],
     }))
     get().setActiveTab(key)
@@ -232,10 +241,45 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
             content: res.data!.content || '',
             binary: !!res.data!.binary,
             truncated: !!res.data!.truncated,
+            modified: false,
             error: undefined,
           }
         : tab),
     }))
+  },
+
+  updateFileContent: (key, content) => {
+    set((state) => ({
+      openTabs: state.openTabs.map((tab) => {
+        if (tab.key === key && tab.content !== content) {
+          return { ...tab, content, modified: true }
+        }
+        return tab
+      })
+    }))
+  },
+
+  saveFile: async (key, useSudo = false) => {
+    const tab = get().openTabs.find(t => t.key === key)
+    if (!tab) return false
+
+    set((state) => ({
+      openTabs: state.openTabs.map((t) => t.key === key ? { ...t, loading: true } : t)
+    }))
+
+    const res = await saveFileContent(tab.connectionId, tab.path, tab.content, useSudo)
+    
+    if (res.code === '0000') {
+      set((state) => ({
+        openTabs: state.openTabs.map((t) => t.key === key ? { ...t, loading: false, modified: false } : t)
+      }))
+      return true
+    } else {
+      set((state) => ({
+        openTabs: state.openTabs.map((t) => t.key === key ? { ...t, loading: false, error: res.info || '保存失败' } : t)
+      }))
+      return false
+    }
   },
 
   setActiveTab: (key) => {
@@ -308,10 +352,10 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
   },
 
   closeOtherTabs: (key) => {
-    set((state) => {
-      const tabs = state.openTabs.filter(tab => tab.key === key)
-      return { openTabs: tabs, activeTabKey: key }
-    })
+    set((state) => ({
+      openTabs: state.openTabs.filter(tab => tab.key === key),
+      activeTabKey: key
+    }))
   },
 
   closeAllTabs: () => {

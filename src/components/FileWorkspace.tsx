@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useFileExplorerStore } from '../stores/fileExplorerStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
@@ -10,8 +10,10 @@ interface FileWorkspaceProps {
 
 export function FileWorkspace({ activeTabKey }: FileWorkspaceProps) {
   const { colors, currentTheme } = useThemeStore()
-  const { openTabs } = useFileExplorerStore()
+  const { openTabs, updateFileContent, saveFile } = useFileExplorerStore()
   const [hasSelection, setHasSelection] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [useSudo, setUseSudo] = useState(false)
 
   const activeTab = useMemo(
     () => openTabs.find((tab) => tab.key === activeTabKey) ?? null,
@@ -35,6 +37,46 @@ export function FileWorkspace({ activeTabKey }: FileWorkspaceProps) {
       case 'xml': return 'xml'
       case 'sql': return 'sql'
       default: return 'plaintext'
+    }
+  }
+
+  const handleChange = useCallback((value: string | undefined) => {
+    if (activeTabKey && value !== undefined) {
+      updateFileContent(activeTabKey, value)
+    }
+  }, [activeTabKey, updateFileContent])
+
+  const handleSave = useCallback(async () => {
+    if (activeTabKey) {
+      const success = await saveFile(activeTabKey)
+      if (!success) {
+        // 保存失败，可能需要sudo权限
+        if (useSudo) {
+          alert('保存失败，sudo权限也无法写入，请检查文件权限')
+        } else {
+          // 询问是否尝试sudo
+          if (confirm('保存失败: Permission denied\n是否尝试使用sudo权限保存？')) {
+            setUseSudo(true)
+          }
+        }
+      } else {
+        // 保存成功，退出编辑模式
+        setIsEditing(false)
+      }
+    }
+  }, [activeTabKey, saveFile, useSudo])
+
+  const handleStartEdit = () => {
+    setIsEditing(true)
+  }
+
+  const handleCancelEdit = () => {
+    if (activeTab?.modified) {
+      if (confirm('文件已修改，确定要取消吗？')) {
+        setIsEditing(false)
+      }
+    } else {
+      setIsEditing(false)
     }
   }
 
@@ -68,9 +110,69 @@ export function FileWorkspace({ activeTabKey }: FileWorkspaceProps) {
                 文件过大，当前仅展示前 512KB 内容。
               </div>
             )}
+            {/* 保存按钮和修改标记 */}
+            {!activeTab.binary && (
+              <div className="flex items-center justify-between px-3 py-1 shrink-0 border-b" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
+                <div className="flex items-center gap-2">
+                  {activeTab.modified && (
+                    <span className="text-xs" style={{ color: colors.yellow }}>● 已修改</span>
+                  )}
+                  {useSudo && (
+                    <span className="text-xs" style={{ color: colors.accent }}>⚡ sudo模式</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {!isEditing ? (
+                    <button
+                      onClick={handleStartEdit}
+                      className="flex items-center gap-1 px-3 py-1 rounded text-xs transition-colors"
+                      style={{
+                        backgroundColor: colors.accent,
+                        color: '#fff',
+                      }}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                      </svg>
+                      编辑
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleCancelEdit}
+                        className="flex items-center gap-1 px-3 py-1 rounded text-xs transition-colors"
+                        style={{
+                          color: colors.textDim,
+                        }}
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={handleSave}
+                        disabled={!activeTab.modified}
+                        className="flex items-center gap-1 px-3 py-1 rounded text-xs transition-colors"
+                        style={{
+                          backgroundColor: activeTab.modified ? colors.accent : 'transparent',
+                          color: activeTab.modified ? '#fff' : colors.textDim,
+                          cursor: activeTab.modified ? 'pointer' : 'not-allowed',
+                        }}
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M19 21H5a2 2 0 01-2-2V7a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+                          <polyline points="17 21 17 13 7 13 7 21"/>
+                          <polyline points="7 3 7 8 15 8"/>
+                        </svg>
+                        保存
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
             {!activeTab.binary && (
               <div className="flex-1 min-h-0 relative">
-                {hasSelection && (
+                {hasSelection && isEditing && (
                   <div className="absolute top-2 right-6 z-10">
                     <button
                       onClick={() => {
@@ -95,36 +197,12 @@ export function FileWorkspace({ activeTabKey }: FileWorkspaceProps) {
                     </button>
                   </div>
                 )}
-                {!hasSelection && (
-                  <div className="absolute top-2 right-6 z-10 opacity-0 hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => {
-                        // @ts-ignore
-                        const editor = window.__activeMonacoEditor
-                        if (editor) {
-                          editor.getAction('add-to-ai-chat')?.run()
-                        }
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded shadow-lg border transition-all hover:scale-105"
-                      style={{
-                        backgroundColor: colors.bgSecondary,
-                        borderColor: colors.border,
-                        color: colors.textSecondary,
-                      }}
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                      </svg>
-                      <span className="text-[11px] font-medium">发送当前文件至 AI</span>
-                    </button>
-                  </div>
-                )}
                 <Editor
                   height="100%"
                   language={getLanguage(activeTab.name)}
                   theme={currentTheme === 'light' ? 'vs-light' : 'vs-dark'}
                   value={activeTab.content || ''}
+                  onChange={isEditing ? handleChange : undefined}
                   onMount={(editor) => {
                     // @ts-ignore
                     window.__activeMonacoEditor = editor
@@ -169,7 +247,7 @@ export function FileWorkspace({ activeTabKey }: FileWorkspaceProps) {
                     })
                   }}
                   options={{
-                    readOnly: true,
+                    readOnly: !isEditing,
                     fontSize: 13,
                     fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
                     minimap: { enabled: true },
