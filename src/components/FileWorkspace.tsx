@@ -4,13 +4,9 @@ import { useFileExplorerStore } from '../stores/fileExplorerStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
 import Editor from '@monaco-editor/react'
 
-interface FileWorkspaceProps {
-  activeTabKey: string | null
-}
-
-export function FileWorkspace({ activeTabKey }: FileWorkspaceProps) {
+export function FileWorkspace() {
   const { colors, currentTheme } = useThemeStore()
-  const { openTabs, updateFileContent, saveFile } = useFileExplorerStore()
+  const { openTabs, activeTabKey, updateFileContent, saveFile } = useFileExplorerStore()
   const [hasSelection, setHasSelection] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [useSudo, setUseSudo] = useState(false)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -8,6 +8,7 @@ import { useConnectionStore } from '../stores/connectionStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
 import { openTerminal, writeInput, readOutput, resizeTerminal, closeTerminal } from '../api/terminal'
 import { ConnectionStatus } from '../types'
+import { COMMAND_CATEGORIES, type CommandCategory, type CommandItem } from './CommandData/commandData'
 
 /** 终端会话状态 */
 interface TerminalSession {
@@ -75,6 +76,11 @@ export function TerminalPanel({
     selectedText: string
   }>({ visible: false, pos: { x: 0, y: 0 }, selectedText: '' })
 
+  // 命令辅助侧边栏状态
+  const [showCommandSidebar, setShowCommandSidebar] = useState(false)
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null)
+
+  // 当前连接状态
   const currentConn = connections.find((c) => c.id === currentConnectionId)
 
   /** 获取当前终端会话 ID */
@@ -137,14 +143,18 @@ export function TerminalPanel({
   }, [])
 
   /** 标记终端断开并清理 */
-  const markDisconnected = useCallback((state: ConnectionTerminalState, reason: string) => {
+  const markDisconnected = useCallback(async (state: ConnectionTerminalState, reason: string) => {
     if (state.disconnected) return
     state.disconnected = true
     stopPolling(state)
 
     const conn = connections.find((c) => c.id === state.session!.connectionId)
     if (conn && conn.status === ConnectionStatus.CONNECTED) {
-      disconnect(conn.id).catch(() => {})
+      try {
+        await disconnect(conn.id)
+      } catch {
+        // 忽略断开连接的错误
+      }
     }
 
     state.terminal.writeln(`\x1b[33m\r\n*** ${reason} ***\x1b[0m`)
@@ -222,16 +232,8 @@ export function TerminalPanel({
     const existingState = terminalStates.current.get(connectionId)
     if (existingState) {
       if (existingState.connecting) return
-      if (existingState.session && !existingState.disconnected) {
-        // 会话已经存在，只需要重新附加到 DOM
-        if (wrapperRef.current && !existingState.container.parentNode) {
-          wrapperRef.current.appendChild(existingState.container)
-        }
-        return
-      }
-      if (existingState.disconnected) {
-        destroyTerminal(connectionId)
-      }
+      // 每次都强制销毁旧会话，避免使用失效的会话
+      destroyTerminal(connectionId)
     }
 
     if (!wrapperRef.current) return
@@ -428,11 +430,40 @@ export function TerminalPanel({
         openTerminalSession(currentConn.id)
       }
     } else {
-      if (state && !keepSessionOnUnmount) {
+      // 当 SSH 连接断开时，总是清理终端会话
+      if (state) {
         destroyTerminal(currentConn.id)
       }
     }
-  }, [currentConn, openTerminalSession, destroyTerminal, keepSessionOnUnmount])
+  }, [currentConn, openTerminalSession, destroyTerminal])
+
+  /**
+   * 组件挂载时恢复已有的终端会话
+   * 
+   * 场景：MainView 中 servers/files 标签页各有一个 TerminalPanel 实例。
+   * 从 servers 切换到 files 时，servers 的 TerminalPanel 卸载并把 terminal container
+   * 从 DOM 移除（但会话保留在 globalTerminalStates）。files 的 TerminalPanel 挂载时，
+   * currentConnectionId 没变，所以 openTerminalSession 不会重新调用。
+   * 此 useEffect 确保挂载时把已有会话 attach 到当前 wrapperRef。
+   */
+  useLayoutEffect(() => {
+    if (!wrapperRef.current || !currentConnectionId) return
+
+    const state = terminalStates.current.get(currentConnectionId)
+    if (!state || !state.session) return
+
+    // 会话已存在，只恢复 DOM 挂载和轮询
+    if (!state.container.parentNode) {
+      wrapperRef.current.appendChild(state.container)
+      state.container.style.visibility = 'visible'
+      state.container.style.zIndex = '1'
+      startPolling(state)
+    }
+
+    requestAnimationFrame(() => {
+      state.terminal.focus()
+    })
+  }, [currentConnectionId, startPolling])
 
   /** 组件卸载清理 - 根据配置决定是否保留会话 */
   useEffect(() => {
@@ -512,7 +543,7 @@ export function TerminalPanel({
   const isConnected = currentConn.status === ConnectionStatus.CONNECTED
 
   return (
-    <div className="h-full flex flex-col min-w-0" style={{ backgroundColor: colors.bgPrimary }}>
+    <div className="h-full flex flex-col min-w-0 relative" style={{ backgroundColor: colors.bgPrimary }}>
       {/* 终端工具栏 */}
       <div className="h-9 flex items-center justify-between px-3 border-b flex-shrink-0" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
         <div className="flex items-center gap-2">
@@ -552,9 +583,10 @@ export function TerminalPanel({
               </button>
               <button
                 onClick={async () => {
-                  // 断开时完全清理会话
-                  destroyTerminal(currentConn.id)
+                  // 先断开 SSH 连接
                   await disconnect(currentConn.id)
+                  // 然后清理终端会话
+                  destroyTerminal(currentConn.id)
                 }}
                 className="p-1.5 rounded hover:bg-white/10 transition-colors"
                 style={{ color: colors.textDim }}
@@ -566,10 +598,52 @@ export function TerminalPanel({
                   <line x1="21" y1="12" x2="9" y2="12" />
                 </svg>
               </button>
+              {/* 命令辅助按钮 */}
+              <button
+                onClick={() => setShowCommandSidebar(!showCommandSidebar)}
+                className="p-1.5 rounded hover:bg-white/10 transition-colors"
+                style={{ color: showCommandSidebar ? colors.accent : colors.textDim }}
+                title="命令辅助"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 17l6-6-6-6M12 19h8" />
+                </svg>
+              </button>
             </>
           )}
         </div>
       </div>
+
+      {/* 命令辅助侧边栏 */}
+      {showCommandSidebar && (
+        <CommandSidebar
+          categories={COMMAND_CATEGORIES}
+          expandedCategory={expandedCategory}
+          onToggleCategory={(name: string | null) => setExpandedCategory(name)}
+          onSelectCommand={(cmd) => {
+            // 直接将命令粘贴到终端输入行，让用户可以编辑后再执行
+            if (!currentConnectionId) return
+            const state = terminalStates.current.get(currentConnectionId)
+            if (state?.terminal) {
+              // 如果不是 root 用户，自动添加 sudo（排除已经有 sudo 的命令和一些不需要 sudo 的命令）
+              let finalCmd = cmd
+              if (currentConn && currentConn.username !== 'root') {
+                const noSudoCommands = ['cd', 'pwd', 'ls', 'echo', 'cat', 'exit', 'clear', 'history']
+                const cmdFirstWord = cmd.trim().split(' ')[0]
+                if (!cmd.startsWith('sudo') && !noSudoCommands.includes(cmdFirstWord)) {
+                  finalCmd = `sudo ${cmd}`
+                }
+              }
+              // 使用 terminal.paste() 方法将文本粘贴到终端
+              state.terminal.paste(finalCmd)
+              // 聚焦到终端
+              state.terminal.focus()
+            }
+          }}
+          colors={colors}
+          isRoot={currentConn?.username === 'root'}
+        />
+      )}
 
       {/* 终端容器 */}
       <div className="flex-1 overflow-hidden" style={{ position: 'relative' }}>
@@ -676,6 +750,125 @@ export function TerminalPanel({
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** 命令辅助侧边栏组件 */
+function CommandSidebar({
+  categories,
+  expandedCategory,
+  onToggleCategory,
+  onSelectCommand,
+  colors,
+  isRoot,
+}: {
+  categories: CommandCategory[]
+  expandedCategory: string | null
+  onToggleCategory: (name: string | null) => void
+  onSelectCommand: (cmd: string) => void
+  colors: ReturnType<typeof useThemeStore.getState>['colors']
+  isRoot: boolean
+}) {
+  const handleCopyCommand = (e: React.MouseEvent, cmd: string) => {
+    e.stopPropagation()
+    let finalCmd = cmd
+    if (!isRoot) {
+      const noSudoCommands = ['cd', 'pwd', 'ls', 'echo', 'cat', 'exit', 'clear', 'history']
+      const cmdFirstWord = cmd.trim().split(' ')[0]
+      if (!cmd.startsWith('sudo') && !noSudoCommands.includes(cmdFirstWord)) {
+        finalCmd = `sudo ${cmd}`
+      }
+    }
+    navigator.clipboard.writeText(finalCmd)
+  }
+
+  const needsSudo = (cmd: string) => {
+    if (isRoot || cmd.startsWith('sudo')) return false
+    const noSudoCommands = ['cd', 'pwd', 'ls', 'echo', 'cat', 'exit', 'clear', 'history']
+    const cmdFirstWord = cmd.trim().split(' ')[0]
+    return !noSudoCommands.includes(cmdFirstWord)
+  }
+
+  return (
+    <div
+      className="absolute right-0 top-9 bottom-0 w-80 border-l overflow-hidden flex flex-col z-20"
+      style={{ backgroundColor: colors.bgPrimary, borderColor: colors.border }}
+    >
+      <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: colors.border }}>
+        <span className="text-xs font-medium" style={{ color: colors.text }}>命令辅助</span>
+        {!isRoot && (
+          <span className="text-[10px] px-2 py-0.5 rounded" style={{ backgroundColor: colors.accent + '20', color: colors.accent }}>
+            非 root，自动加 sudo
+          </span>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto p-3">
+        {categories.map((category) => (
+          <div key={category.name} className="mb-4">
+            <button
+              onClick={() => onToggleCategory(expandedCategory === category.name ? null : category.name)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded text-left mb-2"
+              style={{ backgroundColor: colors.bgSecondary, color: colors.text }}
+            >
+              <span className="text-xs flex items-center gap-1.5">
+                <span>{category.emoji}</span>
+                <span className="font-medium">{category.name}</span>
+                <span className="text-[10px]" style={{ color: colors.textDim }}>
+                  ({category.commands.length})
+                </span>
+              </span>
+              <span style={{ color: colors.textDim }}>
+                {expandedCategory === category.name ? '▼' : '▶'}
+              </span>
+            </button>
+            {expandedCategory === category.name && (
+              <div className="space-y-2">
+                {category.commands.map((cmdItem: CommandItem, index: number) => (
+                  <div key={`${category.name}-${index}`} className="group">
+                    <div 
+                      className="flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer border hover:opacity-90 transition-all"
+                      style={{ backgroundColor: colors.bgPrimary, borderColor: colors.border }}
+                      onClick={() => onSelectCommand(cmdItem.command)}
+                    >
+                      {/* 行号 */}
+                      <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-mono" style={{ backgroundColor: colors.bgSecondary, color: colors.textDim }}>
+                        {index + 1}
+                      </div>
+                      
+                      {/* 命令内容区 */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-mono flex items-center gap-1.5 mb-1">
+                          {needsSudo(cmdItem.command) && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: colors.green + '20', color: colors.green }}>sudo</span>
+                          )}
+                          <span style={{ color: colors.accent }}>{cmdItem.command}</span>
+                        </div>
+                        <div className="text-[10px] leading-relaxed" style={{ color: colors.textDim }}>
+                          {cmdItem.description}
+                        </div>
+                      </div>
+                      
+                      {/* 复制按钮 */}
+                      <button
+                        onClick={(e) => handleCopyCommand(e, cmdItem.command)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-white/10 flex-shrink-0 transition-all"
+                        style={{ color: colors.textDim }}
+                        title="复制命令"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
