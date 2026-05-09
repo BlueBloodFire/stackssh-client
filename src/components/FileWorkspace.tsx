@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useThemeStore } from '../stores/themeStore'
-import { useFileExplorerStore } from '../stores/fileExplorerStore'
+import { useFileExplorerStore, formatFileSize } from '../stores/fileExplorerStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
 import Editor from '@monaco-editor/react'
 
 export function FileWorkspace() {
   const { colors, currentTheme } = useThemeStore()
-  const { openTabs, activeTabKey, updateFileContent, saveFile } = useFileExplorerStore()
+  const { openTabs, activeTabKey, updateFileContent, saveFile, loadMoreContent } = useFileExplorerStore()
   const [hasSelection, setHasSelection] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [useSudo, setUseSudo] = useState(false)
@@ -106,8 +106,18 @@ export function FileWorkspace() {
               </div>
             )}
             {activeTab.truncated && !activeTab.binary && (
-              <div className="text-xs px-3 py-2 shrink-0 border-b" style={{ backgroundColor: `${colors.yellow}10`, color: colors.yellow, borderColor: colors.border }}>
-                文件过大，当前仅展示前 512KB 内容。
+              <div className="text-xs px-3 py-2 shrink-0 border-b flex items-center justify-between" style={{ backgroundColor: `${colors.yellow}10`, color: colors.yellow, borderColor: colors.border }}>
+                <span>文件过大（{formatFileSize(activeTab.content.length)}/{formatFileSize(activeTab.size ?? 0)}），当前仅展示前 {formatFileSize(activeTab.content.length)} 内容。</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => loadMoreContent(activeTab.key)}
+                    disabled={activeTab.loading}
+                    className="px-2 py-0.5 rounded text-[11px] transition-colors hover:scale-105"
+                    style={{ backgroundColor: colors.yellow, color: '#000' }}
+                  >
+                    {activeTab.loading ? '加载中...' : '加载更多'}
+                  </button>
+                </div>
               </div>
             )}
             {/* 保存按钮和修改标记 */}

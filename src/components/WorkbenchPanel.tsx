@@ -3,18 +3,20 @@ import { useThemeStore } from '../stores/themeStore'
 import { useFileExplorerStore } from '../stores/fileExplorerStore'
 import { TerminalPanel } from './TerminalPanel'
 import { FileWorkspace } from './FileWorkspace'
+import { SFTPWorkspace } from './SFTPWorkspace'
 
 interface WorkbenchPanelProps {
   terminalVisible: boolean
   onTerminalSessionChange?: (sessionId: string | null) => void
   globalTerminalManaged?: boolean
+  activeTab?: string // added to know if it's 'sftp'
 }
 
 const TERMINAL_TAB_KEY = '__terminal__'
 
 type PanelLayout = 'tabs' | 'split-vertical' | 'split-horizontal'
 
-export function WorkbenchPanel({ terminalVisible, onTerminalSessionChange, globalTerminalManaged = false }: WorkbenchPanelProps) {
+export function WorkbenchPanel({ terminalVisible, onTerminalSessionChange, globalTerminalManaged = false, activeTab }: WorkbenchPanelProps) {
   const { colors } = useThemeStore()
   const { openTabs, activeTabKey, setActiveTab, closeTab, closeTabsToLeft, closeTabsToRight, closeOtherTabs, closeAllTabs } = useFileExplorerStore()
   
@@ -345,7 +347,7 @@ export function WorkbenchPanel({ terminalVisible, onTerminalSessionChange, globa
                 display: (!globalTerminalManaged && activePane !== TERMINAL_TAB_KEY) || globalTerminalManaged || layoutMode === 'tabs' ? 'block' : 'none' 
               }}
             >
-              <FileWorkspace activeTabKey={activePane || activeTabKey} />
+              {activeTab === 'sftp' ? <SFTPWorkspace /> : <FileWorkspace />}
             </div>
           </>
         )}
@@ -354,7 +356,7 @@ export function WorkbenchPanel({ terminalVisible, onTerminalSessionChange, globa
         {layoutMode === 'split-horizontal' && terminalVisible && (
           <div className="absolute inset-0 flex flex-col">
             <div className="flex-1 min-h-0">
-              <FileWorkspace activeTabKey={activePane || activeTabKey} />
+              {activeTab === 'sftp' ? <SFTPWorkspace /> : <FileWorkspace />}
             </div>
             <div 
               className="h-1 cursor-row-resize hover:bg-blue-500/30" 
@@ -371,7 +373,7 @@ export function WorkbenchPanel({ terminalVisible, onTerminalSessionChange, globa
         {layoutMode === 'split-vertical' && terminalVisible && (
           <div className="absolute inset-0 flex flex-row">
             <div className="flex-1 min-w-0">
-              <FileWorkspace activeTabKey={activePane || activeTabKey} />
+              {activeTab === 'sftp' ? <SFTPWorkspace /> : <FileWorkspace />}
             </div>
             <div 
               className="w-1 cursor-col-resize hover:bg-blue-500/30" 

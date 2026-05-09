@@ -3,9 +3,9 @@ import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { ConnectionStatus } from '../types'
 import { SSHConnectionModal } from './SSHConnectionModal'
-import { useFileExplorerStore } from '../stores/fileExplorerStore'
+import { useFileExplorerStore, formatFileSize } from '../stores/fileExplorerStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
-import { getFileContent, createFile, createDirectory, renameFile, deleteFile } from '../api/sshFile'
+import { getFileContent, createFile, createDirectory, renameFile, deleteFile, downloadFileUrl, uploadFile } from '../api/sshFile'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
@@ -63,6 +63,7 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     rootPathByConnection,
     homePathByConnection,
     currentPathByConnection,
+    selectedPathByConnection,
     childrenByConnection,
     expandedByConnection,
     loadingRootByConnection,
@@ -72,6 +73,7 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     switchConnection,
     navigateToPath,
     toggleDirectory,
+    setSelectedPath,
     openFile,
     refreshDirectory,
   } = useFileExplorerStore()
@@ -99,8 +101,266 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     initialValue: '',
   })
 
-  const [dialogInputValue, setDialogInputValue] = useState('')
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+  
+  const [isRemoteDragging, setIsRemoteDragging] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState<{ total: number; current: number; currentFile: string } | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
+  const CONCURRENCY = 3
+
+  const cancelUpload = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent, node: FileNode, parentPath: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const targetPath = node.directory ? node.path : parentPath
+    if (dragOverPath !== targetPath) {
+      setDragOverPath(targetPath)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOverPath(null)
+  }
+
+  const handleDrop = async (e: React.DragEvent, node: FileNode, connectionId: string, parentPath: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOverPath(null)
+
+    const targetDir = node.directory ? node.path : parentPath
+
+    // 1. 处理从 SFTPWorkspace 拖拽过来的本地文件树节点
+    const draggedLocalNode = (window as any).__draggedLocalNode
+    if (draggedLocalNode) {
+      const getFilesToUpload = (n: any, basePathToRemove: string): { file: File, relativePath: string }[] => {
+        if (!n.isDirectory && n.file) {
+          let relPath = n.path
+          if (basePathToRemove && relPath.startsWith(basePathToRemove)) {
+            relPath = relPath.slice(basePathToRemove.length)
+          }
+          return [{ file: n.file, relativePath: relPath }]
+        }
+        let list: { file: File, relativePath: string }[] = []
+        if (n.children) {
+          n.children.forEach((child: any) => { list = list.concat(getFilesToUpload(child, basePathToRemove)) })
+        }
+        return list
+      }
+      
+      const parentPathToStrip = draggedLocalNode.path.substring(0, draggedLocalNode.path.lastIndexOf('/') + 1)
+      const filesToUpload = getFilesToUpload(draggedLocalNode, parentPathToStrip)
+      
+      if (filesToUpload.length > 0) {
+        setUploading(true)
+        abortControllerRef.current = new AbortController()
+        try {
+          // 并发创建目录
+          const dirsToCreate = new Set<string>()
+          filesToUpload.forEach(f => {
+            const parts = f.relativePath.split('/')
+            for (let i = 0; i < parts.length - 1; i++) {
+              dirsToCreate.add(parts.slice(0, i + 1).join('/'))
+            }
+          })
+          setProgress({ total: filesToUpload.length, current: 0, currentFile: '准备创建目录...' })
+          await Promise.all([...dirsToCreate].map(d => createDirectory(connectionId, `${targetDir === '/' ? '/' : targetDir}/${d}`).catch(() => {})))
+
+          // 并发上传
+          let uploadIdx = 0
+          const workers = Array.from({ length: Math.min(CONCURRENCY, filesToUpload.length) }, () => (async () => {
+            while (uploadIdx < filesToUpload.length) {
+              if (abortControllerRef.current?.signal.aborted) break
+              const idx = uploadIdx++
+              const { file, relativePath } = filesToUpload[idx]
+              setProgress(p => p ? { ...p, current: idx + 1, currentFile: file.name } : null)
+              const remoteFilePath = `${targetDir === '/' ? '/' : targetDir}/${relativePath}`
+              const res = await uploadFile(connectionId, remoteFilePath, file, abortControllerRef.current?.signal)
+              if (res.code === 'CANCELLED') throw new Error('CANCELLED')
+              if (res.code !== '0000') console.error(`上传失败 ${file.name}: ${res.info}`)
+            }
+          })())
+          await Promise.all(workers)
+
+          setProgress(p => p ? { ...p, current: filesToUpload.length, currentFile: '完成' } : null)
+          setTimeout(() => setProgress(null), 2000)
+          await refreshDirectory(connectionId, targetDir)
+        } catch (error: any) {
+          if (error.message === 'CANCELLED') {
+            setProgress(p => p ? { ...p, currentFile: '已取消上传' } : null)
+            setTimeout(() => setProgress(null), 2000)
+          } else {
+            console.error('上传失败:', error)
+            alert('上传过程中发生错误')
+          }
+        } finally {
+          setUploading(false)
+          abortControllerRef.current = null
+        }
+      }
+      return
+    }
+
+    // 2. 处理从系统外部直接拖拽过来的文件
+    const items = e.dataTransfer.items
+    if (items && items.length > 0) {
+      const filesToUpload: { file: File, relativePath: string }[] = []
+      const dirsToCreate = new Set<string>()
+
+      const traverseEntry = async (entry: any, pathPrefix: string = '') => {
+        if (entry.isFile) {
+          const file = await new Promise<File>((resolve) => entry.file(resolve))
+          filesToUpload.push({ file, relativePath: `${pathPrefix}${file.name}` })
+        } else if (entry.isDirectory) {
+          const dirPath = `${pathPrefix}${entry.name}`
+          dirsToCreate.add(dirPath)
+          const dirReader = entry.createReader()
+          
+          const readEntries = async () => {
+            const entries = await new Promise<any[]>((resolve, reject) => {
+              dirReader.readEntries(resolve, reject)
+            })
+            if (entries.length > 0) {
+              for (const child of entries) {
+                await traverseEntry(child, `${dirPath}/`)
+              }
+              await readEntries()
+            }
+          }
+          await readEntries()
+        }
+      }
+
+      setUploading(true)
+      abortControllerRef.current = new AbortController()
+      try {
+        const promises = []
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          if (item.kind === 'file') {
+            const entry = item.webkitGetAsEntry()
+            if (entry) {
+              promises.push(traverseEntry(entry))
+            }
+          }
+        }
+        await Promise.all(promises)
+
+        if (filesToUpload.length > 0 || dirsToCreate.size > 0) {
+          setProgress({ total: filesToUpload.length, current: 0, currentFile: '准备创建目录...' })
+
+          // 并发创建目录
+          await Promise.all([...dirsToCreate].map(d => createDirectory(connectionId, `${targetDir === '/' ? '/' : targetDir}/${d}`).catch(() => {})))
+
+          // 并发上传
+          let uploadIdx = 0
+          const workers = Array.from({ length: Math.min(CONCURRENCY, filesToUpload.length) }, () => (async () => {
+            while (uploadIdx < filesToUpload.length) {
+              if (abortControllerRef.current?.signal.aborted) break
+              const idx = uploadIdx++
+              const { file, relativePath } = filesToUpload[idx]
+              setProgress(p => p ? { ...p, current: idx + 1, currentFile: file.name } : null)
+              const remoteFilePath = `${targetDir === '/' ? '/' : targetDir}/${relativePath}`
+              const res = await uploadFile(connectionId, remoteFilePath, file, abortControllerRef.current?.signal)
+              if (res.code === 'CANCELLED') throw new Error('CANCELLED')
+              if (res.code !== '0000') console.error(`上传失败 ${file.name}: ${res.info}`)
+            }
+          })())
+          await Promise.all(workers)
+          setProgress(p => p ? { ...p, current: filesToUpload.length, currentFile: '完成' } : null)
+          setTimeout(() => setProgress(null), 2000)
+          await refreshDirectory(connectionId, targetDir)
+        }
+      } catch (error: any) {
+        if (error.message === 'CANCELLED') {
+          setProgress(p => p ? { ...p, currentFile: '已取消上传' } : null)
+          setTimeout(() => setProgress(null), 2000)
+        } else {
+          console.error('上传失败:', error)
+          alert('上传过程中发生错误')
+        }
+      } finally {
+        setUploading(false)
+        abortControllerRef.current = null
+      }
+    } else {
+      const files = e.dataTransfer.files
+      if (files && files.length > 0) {
+        setUploading(true)
+        abortControllerRef.current = new AbortController()
+        setProgress({ total: files.length, current: 0, currentFile: '准备上传...' })
+        try {
+          // 并发上传
+          let uploadIdx = 0
+          const workers = Array.from({ length: Math.min(CONCURRENCY, files.length) }, () => (async () => {
+            while (uploadIdx < files.length) {
+              if (abortControllerRef.current?.signal.aborted) break
+              const idx = uploadIdx++
+              const file = files[idx]
+              setProgress(p => p ? { ...p, current: idx, currentFile: file.name } : null)
+              const remoteFilePath = `${targetDir === '/' ? '/' : targetDir}/${file.name}`
+              const res = await uploadFile(connectionId, remoteFilePath, file, abortControllerRef.current?.signal)
+              if (res.code === 'CANCELLED') throw new Error('CANCELLED')
+              if (res.code !== '0000') console.error(`上传失败 ${file.name}: ${res.info}`)
+            }
+          })())
+          await Promise.all(workers)
+          setProgress(p => p ? { ...p, current: files.length, currentFile: '完成' } : null)
+          setTimeout(() => setProgress(null), 2000)
+          await refreshDirectory(connectionId, targetDir)
+        } catch (error: any) {
+          if (error.message === 'CANCELLED') {
+            setProgress(p => p ? { ...p, currentFile: '已取消上传' } : null)
+            setTimeout(() => setProgress(null), 2000)
+          } else {
+            console.error('上传失败:', error)
+            alert('上传过程中发生错误')
+          }
+        } finally {
+          setUploading(false)
+          abortControllerRef.current = null
+        }
+      }
+    }
+  }
+
+  const handleRemoteDragOverArea = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsRemoteDragging(true)
+  }
+
+  const handleRemoteDragLeaveArea = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsRemoteDragging(false)
+  }
+
+  const handleRemoteDropArea = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsRemoteDragging(false)
+
+    if (!browsingConnectionId) {
+      alert('请先选择目标服务器')
+      return
+    }
+
+    const currentRemotePath = currentPathByConnection[browsingConnectionId] || '/'
+
+    // We can reuse the `handleDrop` logic by faking a directory node
+    handleDrop(e, { directory: true, path: currentRemotePath } as any, browsingConnectionId, currentRemotePath)
+  }
+
+  const [dialogInputValue, setDialogInputValue] = useState('')
   const dialogInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -141,14 +401,15 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
   }
 
   useEffect(() => {
-    if ((activeTab === 'files' || activeTab === 'sftp') && currentConnectionId) {
+    if ((activeTab === 'files' || activeTab === 'sftp') && currentConnectionId && currentConnectionId !== activeFileConnectionId) {
       switchConnection(currentConnectionId)
     }
-  }, [activeTab, currentConnectionId, switchConnection])
+  }, [activeTab, currentConnectionId, activeFileConnectionId, switchConnection])
 
   const browsingConnectionId = activeFileConnectionId || currentConnectionId
   const browsingConnection = connections.find((c) => c.id === browsingConnectionId) || null
   const currentPath = browsingConnectionId ? currentPathByConnection[browsingConnectionId] : ''
+  const selectedPath = browsingConnectionId ? selectedPathByConnection[browsingConnectionId] : ''
   const homePath = browsingConnectionId ? homePathByConnection[browsingConnectionId] : ''
   const rootPath = browsingConnectionId ? rootPathByConnection[browsingConnectionId] : '/'
 
@@ -362,6 +623,29 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
               </svg>
               删除
             </button>
+            {!node.directory && (
+              <button
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 flex items-center gap-2 transition-colors"
+                style={{ color: colors.text }}
+                onClick={() => {
+                  const url = downloadFileUrl(contextMenu.connectionId, node.path)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = node.name
+                  document.body.appendChild(a)
+                  a.click()
+                  document.body.removeChild(a)
+                  closeContextMenu()
+                }}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                下载文件
+              </button>
+            )}
             <div style={{ height: 1, backgroundColor: colors.border, margin: '4px 0' }} />
             <button
               className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 flex items-center gap-2 transition-colors"
@@ -391,13 +675,13 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
         <div
-          className="rounded-lg shadow-lg border p-4 w-full max-w-sm"
-          style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h3 className="text-sm font-medium mb-3" style={{ color: colors.text }}>{dialog.title}</h3>
-          
-          {!isDelete ? (
+            className="rounded-lg shadow-lg border p-4 w-full max-w-sm"
+            style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-medium mb-3" style={{ color: colors.text }}>{dialog.title}</h3>
+            
+            {!isDelete ? (
             <input
               ref={dialogInputRef}
               type="text"
@@ -411,12 +695,12 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
                 else if (e.key === 'Escape') closeDialog()
               }}
             />
-          ) : (
-            <p className="text-xs mb-4" style={{ color: colors.textDim }}>
-              确定要删除 <span style={{ color: colors.accent, fontWeight: 500 }}>{node?.name || ''}</span> 吗？
-              {node?.directory ? ' 此操作将递归删除该目录下的所有内容。' : ''}
-            </p>
-          )}
+            ) : (
+              <p className="text-xs mb-4" style={{ color: colors.textDim }}>
+                确定要删除 <span style={{ color: colors.accent, fontWeight: 500 }}>{node?.name || ''}</span> 吗？
+                {node?.directory ? ' 此操作将递归删除该目录下的所有内容。' : ''}
+              </p>
+            )}
 
           <div className="flex justify-end gap-2">
             <button
@@ -463,19 +747,35 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
       
       const isHidden = node.name.startsWith('.')
       const isActive = !node.directory && `${connectionId}:${node.path}` === activeTabKey
+      const isSelected = node.directory && selectedPath === node.path
       const hiddenColor = '#b8860b'
 
       return (
         <div key={`${connectionId}:${node.path}`}>
           <div
             className="w-full flex items-center justify-between px-2 py-1 text-xs transition-colors group cursor-pointer"
-            style={{ paddingLeft: `${8 + depth * 14}px`, color: isActive ? colors.accent : (isHidden ? hiddenColor : colors.textSecondary), backgroundColor: isActive ? `${colors.accent}15` : 'transparent', opacity: isPathLoading ? 0.7 : 1 }}
-            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)' }}
-            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent' }}
+            style={{ 
+              paddingLeft: `${8 + depth * 14}px`, 
+              color: isActive || isSelected ? colors.accent : (isHidden ? hiddenColor : colors.textSecondary), 
+              backgroundColor: dragOverPath === node.path ? `${colors.accent}40` : (isActive || isSelected ? `${colors.accent}15` : 'transparent'), 
+              opacity: isPathLoading ? 0.7 : 1 
+            }}
+            onMouseEnter={(e) => { if (!isActive && !isSelected && dragOverPath !== node.path) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)' }}
+            onMouseLeave={(e) => { if (!isActive && !isSelected && dragOverPath !== node.path) e.currentTarget.style.backgroundColor = 'transparent' }}
             onContextMenu={(e) => handleContextMenu(e, node, connectionId, path)}
+            onDragOver={(e) => handleDragOver(e, node, path)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, node, connectionId, path)}
             title={node.path}
           >
-            <div className="flex items-center gap-1.5 flex-1 min-w-0" onClick={() => node.directory ? void toggleDirectory(connectionId, node.path) : void openFile(connectionId, node.path, node.name)}>
+            <div className="flex items-center gap-1.5 flex-1 min-w-0" onClick={() => {
+              if (node.directory) {
+                setSelectedPath(connectionId, node.path)
+                void toggleDirectory(connectionId, node.path)
+              } else {
+                void openFile(connectionId, node.path, node.name)
+              }
+            }}>
               {canExpand && (
                 <span className="text-[10px] w-3 flex items-center justify-center" style={{ color: isHidden ? hiddenColor : colors.textDim }}>
                   {isPathLoading ? (
@@ -497,7 +797,7 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
                   <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></>
                 )}
               </svg>
-              <span className={`truncate ${isActive ? 'font-medium' : ''}`}>{node.name}</span>
+              <span className={`truncate ${isActive || isSelected ? 'font-medium' : ''}`}>{node.name}</span>
             </div>
             
             <button className="opacity-0 group-hover:opacity-100 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-black/20" style={{ color: colors.textDim }} title="添加到 AI 对话" onClick={(e) => { e.stopPropagation(); handleAddContext(connectionId, node) }}>
@@ -606,8 +906,24 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
               </div>
             )}
           </div>
-        ) : activeTab === 'files' || activeTab === 'sftp' ? (
-          <div onContextMenu={(e) => { if (browsingConnectionId && currentPath) handleContextMenu(e, null, browsingConnectionId, currentPath) }}>
+        ) : activeTab === 'files' ? (
+          <div 
+            onContextMenu={(e) => { if (browsingConnectionId && currentPath) handleContextMenu(e, null, browsingConnectionId, currentPath) }}
+            className="h-full min-h-[200px] transition-colors"
+            style={{ backgroundColor: dragOverPath === currentPath ? `${colors.accent}15` : 'transparent' }}
+            onDragOver={(e) => {
+              if (browsingConnectionId && currentPath) {
+                e.preventDefault(); e.stopPropagation();
+                if (dragOverPath !== currentPath) setDragOverPath(currentPath);
+              }
+            }}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => {
+              if (browsingConnectionId && currentPath) {
+                handleDrop(e, { directory: true, path: currentPath } as any, browsingConnectionId, currentPath);
+              }
+            }}
+          >
             {browsingConnection ? (
               <div className="p-2 space-y-2">
                 <div>
@@ -634,6 +950,180 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
             ) : (
               <div className="text-center py-10 px-4">
                 <div className="w-12 h-12 mx-auto mb-3 rounded-lg flex items-center justify-center text-sm font-bold" style={{ backgroundColor: `${colors.accent}20`, color: colors.accent }}>FILE</div>
+                <p className="text-sm mb-1" style={{ color: colors.textSecondary }}>请先选择 SSH 连接</p>
+                <p className="text-xs" style={{ color: colors.textDim }}>在「SSH 服务器」面板中添加并连接</p>
+              </div>
+            )}
+          </div>
+        ) : activeTab === 'sftp' ? (
+          <div 
+            className="h-full flex flex-col min-h-0 relative transition-colors"
+            onDragOver={handleRemoteDragOverArea}
+            onDragLeave={handleRemoteDragLeaveArea}
+            onDrop={handleRemoteDropArea}
+          >
+            {isRemoteDragging && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm border-2 border-dashed rounded-lg m-2" style={{ borderColor: colors.accent }}>
+                <div className="flex flex-col items-center pointer-events-none">
+                  <svg className="w-12 h-12 mb-2" style={{ color: colors.accent }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span className="text-sm font-medium text-white shadow-sm">上传到远程目录</span>
+                </div>
+              </div>
+            )}
+            
+            {browsingConnection ? (
+              <div className="flex flex-col h-full">
+                <div className="p-2 shrink-0 space-y-2 border-b" style={{ borderColor: colors.border }}>
+                  <select className="w-full text-xs rounded px-2 py-1" style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }} value={browsingConnection.id} onChange={(e) => { const id = e.target.value; selectConnection(id); void switchConnection(id) }}>
+                    {connections.map((conn) => <option key={conn.id} value={conn.id}>{conn.name} ({conn.username}@{conn.host})</option>)}
+                  </select>
+                  
+                  <div className="flex items-center text-xs overflow-x-auto no-scrollbar gap-1">
+                    <button onClick={() => { setSelectedPath(browsingConnection.id, '/'); navigateToPath(browsingConnection.id, '/') }} className="hover:bg-white/10 px-1 rounded shrink-0" style={{ color: colors.accent }}>/</button>
+                    {(currentPathByConnection[browsingConnection.id] || '/').split('/').filter(Boolean).map((part, idx, arr) => {
+                      const path = '/' + arr.slice(0, idx + 1).join('/')
+                      return (
+                        <div key={path} className="flex items-center gap-1 shrink-0">
+                          <span style={{ color: colors.textDim }}>/</span>
+                          <button onClick={() => { setSelectedPath(browsingConnection.id, path); navigateToPath(browsingConnection.id, path) }} className="hover:bg-white/10 px-1 rounded" style={{ color: colors.textSecondary }}>{part}</button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="输入路径后回车跳转（如 /home/user/project）"
+                    className="w-full text-xs rounded px-2 py-1"
+                    style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const input = e.currentTarget.value.trim()
+                        if (input) {
+                          const path = input.startsWith('/') ? input : '/' + input
+                          navigateToPath(browsingConnection.id, path)
+                          e.currentTarget.value = ''
+                        }
+                      }
+                    }}
+                  />
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-1">
+                  {errorByConnection[browsingConnection.id] && (
+                    <div className="text-[11px] px-2 py-1 rounded mx-2 mt-1 mb-2" style={{ backgroundColor: `${colors.red}20`, color: colors.red }}>
+                      {errorByConnection[browsingConnection.id]}
+                    </div>
+                  )}
+                  {loadingRootByConnection[browsingConnection.id] ? (
+                    <div className="text-xs px-2 py-4 text-center" style={{ color: colors.textDim }}>加载中...</div>
+                  ) : (
+                    <div className="flex flex-col">
+                      {currentPathByConnection[browsingConnection.id] && currentPathByConnection[browsingConnection.id] !== '/' && (
+                        <div 
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 cursor-pointer rounded"
+                          onClick={() => {
+                            const current = currentPathByConnection[browsingConnection.id] || '/'
+                            const parts = current.split('/').filter(Boolean)
+                            parts.pop()
+                            const parent = '/' + parts.join('/')
+                            setSelectedPath(browsingConnection.id, parent)
+                            navigateToPath(browsingConnection.id, parent)
+                          }}
+                        >
+                          <svg className="w-4 h-4 shrink-0" style={{ color: colors.textDim }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></svg>
+                          <span className="text-xs" style={{ color: colors.textSecondary }}>.. (返回上级)</span>
+                        </div>
+                      )}
+                      {(childrenByConnection[browsingConnection.id]?.[currentPathByConnection[browsingConnection.id] || '/'] || []).map(node => (
+                        <div 
+                          key={node.path}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('application/json', JSON.stringify({ ...node, connectionId: browsingConnection.id }))
+                            e.dataTransfer.effectAllowed = 'copy'
+                          }}
+                          className="flex items-center justify-between px-2 py-1.5 hover:bg-white/5 cursor-pointer rounded group"
+                          onClick={() => {
+                            if (node.directory) {
+                              setSelectedPath(browsingConnection.id, node.path)
+                              navigateToPath(browsingConnection.id, node.path)
+                            }
+                          }}
+                          onContextMenu={(e) => handleContextMenu(e, node, browsingConnectionId!, currentPathByConnection[browsingConnectionId!] || '/')}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <svg className="w-4 h-4 shrink-0" style={{ color: node.directory ? colors.accent : colors.textDim }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              {node.directory ? (
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                              ) : (
+                                <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></>
+                              )}
+                            </svg>
+                            <span className="text-xs truncate" style={{ color: colors.text }}>{node.name}</span>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 shrink-0">
+                            {!node.directory && node.size !== null && (
+                              <span className="text-[10px]" style={{ color: colors.textDim }}>{formatFileSize(node.size)}</span>
+                            )}
+                            {!node.directory && (
+                              <button
+                                className="opacity-0 group-hover:opacity-100 px-1 py-0.5 rounded text-[10px] transition-opacity"
+                                style={{ backgroundColor: colors.bgPrimary, color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const url = downloadFileUrl(browsingConnection.id, node.path)
+                                  const a = document.createElement('a')
+                                  a.href = url
+                                  a.download = node.name
+                                  document.body.appendChild(a)
+                                  a.click()
+                                  document.body.removeChild(a)
+                                }}
+                              >
+                                下载
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {uploading && progress && (
+                  <div className="px-2 py-3 border-t text-xs flex flex-col gap-1.5 shrink-0 shadow-lg relative" style={{ borderColor: colors.border, backgroundColor: colors.bgSecondary }}>
+                    <div className="flex justify-between items-center" style={{ color: colors.text }}>
+                      <span className="font-medium">上传进度 ({progress.current}/{progress.total})</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium" style={{ color: colors.accent }}>{Math.round((progress.current / progress.total) * 100)}%</span>
+                        {progress.current < progress.total && (
+                          <button 
+                            onClick={cancelUpload}
+                            className="hover:bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded transition-colors text-[10px]"
+                          >
+                            取消
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full overflow-hidden bg-black/10">
+                      <div 
+                        className="h-full transition-all duration-200" 
+                        style={{ backgroundColor: colors.accent, width: `${(progress.current / progress.total) * 100}%` }}
+                      />
+                    </div>
+                    <div className="truncate opacity-80" style={{ color: colors.textDim }}>正在上传: {progress.currentFile}</div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-10 px-4">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-lg flex items-center justify-center text-sm font-bold" style={{ backgroundColor: `${colors.accent}20`, color: colors.accent }}>SFTP</div>
                 <p className="text-sm mb-1" style={{ color: colors.textSecondary }}>请先选择 SSH 连接</p>
                 <p className="text-xs" style={{ color: colors.textDim }}>在「SSH 服务器」面板中添加并连接</p>
               </div>

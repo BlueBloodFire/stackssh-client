@@ -114,6 +114,29 @@ export function post<T>(path: string, body?: unknown, params?: Record<string, st
   return request<T>('POST', path, body, params)
 }
 
+/** POST FormData 请求（用于上传文件），无默认超时，支持外部传入 signal 取消 */
+export async function postFormData<T>(path: string, formData: FormData, signal?: AbortSignal): Promise<ApiResponse<T>> {
+  let url = `${baseUrl}${path}`
+  
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      signal,
+    })
+
+    if (!res.ok) {
+      return { code: String(res.status), info: res.statusText, data: null }
+    }
+    return (await res.json()) as ApiResponse<T>
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      return { code: 'CANCELLED', info: '上传已取消', data: null }
+    }
+    return { code: 'NETWORK_ERROR', info: err?.message || '网络错误', data: null }
+  }
+}
+
 /** PUT 请求 */
 export function put<T>(path: string, body?: unknown, params?: Record<string, string>) {
   return request<T>('PUT', path, body, params)

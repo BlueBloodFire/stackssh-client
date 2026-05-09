@@ -1,4 +1,4 @@
-import { get, post } from './request'
+import { get, post, postFormData } from './request'
 
 const BASE = '/api/v1/ssh/file'
 
@@ -25,6 +25,10 @@ export interface SshFileContentResponseDTO {
   size: number
   binary: boolean
   truncated: boolean
+  /** 分片读取起始偏移 */
+  offset?: number
+  /** 剩余未读字节数 */
+  remaining?: number
   content: string
 }
 
@@ -34,6 +38,10 @@ export function getFileTree(connectionId: string, path?: string) {
 
 export function getFileContent(connectionId: string, path: string) {
   return get<SshFileContentResponseDTO>(`${BASE}/content`, { connectionId, path })
+}
+
+export function getFileContentChunk(connectionId: string, path: string, offset?: number, limit?: number) {
+  return get<SshFileContentResponseDTO>(`${BASE}/content-chunk`, { connectionId, path, offset: offset?.toString() ?? '', limit: limit?.toString() ?? '' })
 }
 
 export function createFile(connectionId: string, path: string, useSudo?: boolean) {
@@ -54,4 +62,14 @@ export function deleteFile(connectionId: string, path: string, useSudo?: boolean
 
 export function saveFileContent(connectionId: string, path: string, content: string, useSudo?: boolean) {
   return post<void>(`${BASE}/save-content`, { content }, { connectionId, path, sudo: useSudo ? 'true' : 'false' })
+}
+
+export function uploadFile(connectionId: string, path: string, file: File, signal?: AbortSignal) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return postFormData<void>(`${BASE}/upload?connectionId=${encodeURIComponent(connectionId)}&path=${encodeURIComponent(path)}`, formData, signal)
+}
+
+export function downloadFileUrl(connectionId: string, path: string) {
+  return `${BASE}/download?connectionId=${encodeURIComponent(connectionId)}&path=${encodeURIComponent(path)}`
 }

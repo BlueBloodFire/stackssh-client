@@ -1,5 +1,14 @@
 import { create } from 'zustand'
-import { getFileContent, getFileTree, saveFileContent } from '../api/sshFile'
+import { getFileContent, getFileTree, saveFileContent, getFileContentChunk } from '../api/sshFile'
+
+/** 格式化文件大小为可读字符串 */
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || bytes === 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
 
 export interface FileNode {
   name: string
@@ -20,6 +29,7 @@ export interface OpenFileTab {
   truncated: boolean
   error?: string
   modified?: boolean
+  size?: number
 }
 
 interface FileExplorerStore {
@@ -27,6 +37,7 @@ interface FileExplorerStore {
   rootPathByConnection: Record<string, string>
   homePathByConnection: Record<string, string>
   currentPathByConnection: Record<string, string>
+  selectedPathByConnection: Record<string, string>
   childrenByConnection: Record<string, Record<string, FileNode[]>>
   expandedByConnection: Record<string, string[]>
   loadingPathsByConnection: Record<string, string[]>
@@ -36,11 +47,15 @@ interface FileExplorerStore {
   openTabs: OpenFileTab[]
   activeTabKey: string | null
 
+  /** 追加读取大文件的后续分片 */
+  loadMoreContent: (key: string) => Promise<void>
+
   switchConnection: (connectionId: string) => Promise<void>
   navigateToPath: (connectionId: string, path: string) => Promise<void>
   toggleDirectory: (connectionId: string, path: string) => Promise<void>
   refreshCurrentPath: (connectionId: string) => Promise<void>
   refreshDirectory: (connectionId: string, path: string) => Promise<void>
+  setSelectedPath: (connectionId: string, path: string) => void
 
   openFile: (connectionId: string, path: string, name: string) => Promise<void>
   updateFileContent: (key: string, content: string) => void
@@ -76,6 +91,7 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
   rootPathByConnection: {},
   homePathByConnection: {},
   currentPathByConnection: {},
+  selectedPathByConnection: {},
   childrenByConnection: {},
   expandedByConnection: {},
   loadingPathsByConnection: {},
@@ -92,6 +108,10 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
   },
 
   navigateToPath: async (connectionId, path) => {
+    if (get().loadingRootByConnection[connectionId]) {
+      return
+    }
+
     set((state) => ({
       loadingRootByConnection: { ...state.loadingRootByConnection, [connectionId]: true },
       loadingPathsByConnection: {
@@ -123,6 +143,7 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
         rootPathByConnection: { ...state.rootPathByConnection, [connectionId]: data.rootPath || '/' },
         homePathByConnection: { ...state.homePathByConnection, [connectionId]: data.homePath || '/' },
         currentPathByConnection: { ...state.currentPathByConnection, [connectionId]: data.currentPath || '/' },
+        selectedPathByConnection: { ...state.selectedPathByConnection, [connectionId]: state.selectedPathByConnection[connectionId] || data.currentPath || '/' },
         childrenByConnection: { ...state.childrenByConnection, [connectionId]: connectionChildren },
         expandedByConnection: {
           ...state.expandedByConnection,
@@ -138,6 +159,11 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
   },
 
   toggleDirectory: async (connectionId, path) => {
+    const loadingPaths = get().loadingPathsByConnection[connectionId] || []
+    if (loadingPaths.includes(path)) {
+      return
+    }
+
     const expanded = get().expandedByConnection[connectionId] || []
     const isExpanded = expanded.includes(path)
     if (isExpanded) {
@@ -200,6 +226,15 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
     await get().navigateToPath(connectionId, path)
   },
 
+  setSelectedPath: (connectionId, path) => {
+    set((state) => ({
+      selectedPathByConnection: {
+        ...state.selectedPathByConnection,
+        [connectionId]: path,
+      },
+    }))
+  },
+
   openFile: async (connectionId, path, name) => {
     const key = tabKeyOf(connectionId, path)
     const existing = get().openTabs.find((tab) => tab.key === key)
@@ -219,6 +254,7 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
         binary: false,
         truncated: false,
         modified: false,
+        size: undefined,
       }],
     }))
     get().setActiveTab(key)
@@ -242,10 +278,41 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
             binary: !!res.data!.binary,
             truncated: !!res.data!.truncated,
             modified: false,
+            size: res.data!.size,
             error: undefined,
           }
         : tab),
     }))
+  },
+
+
+  loadMoreContent: async (key) => {
+    const tab = get().openTabs.find(t => t.key === key)
+    if (!tab || tab.binary || !tab.truncated) return
+
+    set((state) => ({
+      openTabs: state.openTabs.map((t) => t.key === key ? { ...t, loading: true } : t)
+    }))
+
+    const CHUNK = 256 * 1024
+    const currentOffset = tab.content.length
+    const res = await getFileContentChunk(tab.connectionId, tab.path, currentOffset, CHUNK)
+    if (res.code === '0000' && res.data) {
+      set((state) => ({
+        openTabs: state.openTabs.map((t) => t.key === key
+          ? {
+              ...t,
+              loading: false,
+              content: t.content + (res.data!.content || ''),
+              truncated: !!res.data!.truncated,
+            }
+          : t)
+      }))
+    } else {
+      set((state) => ({
+        openTabs: state.openTabs.map((t) => t.key === key ? { ...t, loading: false } : t)
+      }))
+    }
   },
 
   updateFileContent: (key, content) => {

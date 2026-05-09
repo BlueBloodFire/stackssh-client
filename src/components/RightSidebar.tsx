@@ -670,7 +670,20 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
             </div>
             <div className="w-full max-w-xs space-y-1.5">
               {['检查服务器状态', '分析日志文件', '部署应用', '排查报错'].map((text) => (
-                <button key={text} onClick={() => setInputText(text)} className="w-full text-left px-3 py-2 rounded-md text-xs transition-colors" style={{ color: colors.textSecondary, backgroundColor: colors.bgTertiary, border: `1px solid ${colors.border}` }}>
+                <button key={text} onClick={() => {
+                  if (inputRef.current) {
+                    inputRef.current.innerText = text;
+                    inputHtmlRef.current = inputRef.current.innerHTML;
+                    setInputText(text);
+                    inputRef.current.focus();
+                    const range = document.createRange();
+                    const sel = window.getSelection();
+                    range.selectNodeContents(inputRef.current);
+                    range.collapse(false);
+                    sel?.removeAllRanges();
+                    sel?.addRange(range);
+                  }
+                }} className="w-full text-left px-3 py-2 rounded-md text-xs transition-colors hover:opacity-80" style={{ color: colors.textSecondary, backgroundColor: colors.bgTertiary, border: `1px solid ${colors.border}` }}>
                   {text}
                 </button>
               ))}
@@ -801,7 +814,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
             }}
           />
 
-          {!inputText && !isFocused && (
+          {(!inputText || inputText.trim() === '') && (
             <div className="absolute pointer-events-none text-sm" style={{ left: '16px', top: inputTags.length > 0 ? '42px' : '8px', color: colors.textDim, opacity: 0.6 }}>
               {inputPlaceholder()}
             </div>

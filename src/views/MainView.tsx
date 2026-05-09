@@ -5,6 +5,7 @@ import { LeftSidebar } from '../components/LeftSidebar'
 import { RightSidebar } from '../components/RightSidebar'
 import { TerminalPanel } from '../components/TerminalPanel'
 import { FileWorkspace } from '../components/FileWorkspace'
+import { SFTPWorkspace } from '../components/SFTPWorkspace'
 import { Settings } from '../components/Settings'
 import { SSHConnectionModal } from '../components/SSHConnectionModal'
 import { useThemeStore } from '../stores/themeStore'
@@ -228,243 +229,260 @@ export function MainView() {
           {/* 文件/SFTP 标签页 - 统一终端管理 + 多文件标签 */}
           {(activeTab === 'files' || activeTab === 'sftp') && (
             <div className="h-full min-w-0 flex flex-col">
-              {/* 工具栏 */}
-              <div className="h-9 border-b flex items-center pr-2 relative" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
-                {/* 左侧布局切换按钮 */}
-                {terminalVisible && (
-                  <div className="flex-shrink-0 flex items-center h-full px-2 gap-1" style={{ borderRight: `1px solid ${colors.border}` }}>
-                    {/* 标签模式按钮组 */}
-                    <div className="flex items-center gap-1">
+              {/* 工具栏（仅在 files 标签下显示终端切换和文件标签） */}
+              {activeTab === 'files' && (
+                <div className="h-9 border-b flex items-center pr-2 relative" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
+                  {/* 左侧布局切换按钮 */}
+                  {terminalVisible && (
+                    <div className="flex-shrink-0 flex items-center h-full px-2 gap-1" style={{ borderRight: `1px solid ${colors.border}` }}>
+                      {/* 标签模式按钮组 */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setWorkbenchLayoutMode('tabs')
+                            setIsTerminalActive(true)
+                          }}
+                          className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors`}
+                          style={{
+                            color: workbenchLayoutMode === 'tabs' && isTerminalActive ? colors.accent : colors.textSecondary,
+                            backgroundColor: workbenchLayoutMode === 'tabs' && isTerminalActive ? colors.bgPrimary : 'transparent',
+                            border: `1px solid ${workbenchLayoutMode === 'tabs' && isTerminalActive ? colors.border : 'transparent'}`,
+                          }}
+                          title="标签模式"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="4 17 10 11 4 5"></polyline>
+                            <line x1="12" y1="19" x2="20" y2="19"></line>
+                          </svg>
+                          <span className="font-medium">终端</span>
+                        </button>
+                      </div>
+                      
                       <button
-                        onClick={() => {
-                          setWorkbenchLayoutMode('tabs')
-                          setIsTerminalActive(true)
-                        }}
+                        onClick={() => setWorkbenchLayoutMode('split-horizontal')}
                         className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors`}
                         style={{
-                          color: workbenchLayoutMode === 'tabs' && isTerminalActive ? colors.accent : colors.textSecondary,
-                          backgroundColor: workbenchLayoutMode === 'tabs' && isTerminalActive ? colors.bgPrimary : 'transparent',
-                          border: `1px solid ${workbenchLayoutMode === 'tabs' && isTerminalActive ? colors.border : 'transparent'}`,
+                          color: workbenchLayoutMode === 'split-horizontal' ? colors.accent : colors.textSecondary,
+                          backgroundColor: workbenchLayoutMode === 'split-horizontal' ? colors.bgPrimary : 'transparent',
+                          border: `1px solid ${workbenchLayoutMode === 'split-horizontal' ? colors.border : 'transparent'}`,
                         }}
-                        title="标签模式"
+                        title="上下分屏"
                       >
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="4 17 10 11 4 5"></polyline>
-                          <line x1="12" y1="19" x2="20" y2="19"></line>
+                          <rect x="3" y="3" width="18" height="8" rx="1"></rect>
+                          <rect x="3" y="13" width="18" height="8" rx="1"></rect>
                         </svg>
-                        <span className="font-medium">终端</span>
+                      </button>
+                      
+                      <button
+                        onClick={() => setWorkbenchLayoutMode('split-vertical')}
+                        className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors`}
+                        style={{
+                          color: workbenchLayoutMode === 'split-vertical' ? colors.accent : colors.textSecondary,
+                          backgroundColor: workbenchLayoutMode === 'split-vertical' ? colors.bgPrimary : 'transparent',
+                          border: `1px solid ${workbenchLayoutMode === 'split-vertical' ? colors.border : 'transparent'}`,
+                        }}
+                        title="左右分屏"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="3" y="3" width="8" height="18" rx="1"></rect>
+                          <rect x="13" y="3" width="8" height="18" rx="1"></rect>
+                        </svg>
                       </button>
                     </div>
-                    
-                    <button
-                      onClick={() => setWorkbenchLayoutMode('split-horizontal')}
-                      className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors`}
-                      style={{
-                        color: workbenchLayoutMode === 'split-horizontal' ? colors.accent : colors.textSecondary,
-                        backgroundColor: workbenchLayoutMode === 'split-horizontal' ? colors.bgPrimary : 'transparent',
-                        border: `1px solid ${workbenchLayoutMode === 'split-horizontal' ? colors.border : 'transparent'}`,
-                      }}
-                      title="上下分屏"
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="3" width="18" height="8" rx="1"></rect>
-                        <rect x="3" y="13" width="18" height="8" rx="1"></rect>
-                      </svg>
-                    </button>
-                    
-                    <button
-                      onClick={() => setWorkbenchLayoutMode('split-vertical')}
-                      className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors`}
-                      style={{
-                        color: workbenchLayoutMode === 'split-vertical' ? colors.accent : colors.textSecondary,
-                        backgroundColor: workbenchLayoutMode === 'split-vertical' ? colors.bgPrimary : 'transparent',
-                        border: `1px solid ${workbenchLayoutMode === 'split-vertical' ? colors.border : 'transparent'}`,
-                      }}
-                      title="左右分屏"
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="3" width="8" height="18" rx="1"></rect>
-                        <rect x="13" y="3" width="8" height="18" rx="1"></rect>
-                      </svg>
-                    </button>
-                  </div>
-                )}
-
-                {/* 文件标签区域 */}
-                <div 
-                  ref={tabsScrollRef}
-                  className="flex-1 h-full flex items-center px-2 gap-1 overflow-x-auto no-scrollbar"
-                >
-                  {openTabs.map((tab) => {
-                    const isActive = activeTabKey === tab.key
-                    return (
-                      <button
-                        key={tab.key}
-                        data-tab-key={tab.key}
-                        onClick={() => {
-                          setActiveFileTab(tab.key)
-                          setIsTerminalActive(false)
-                          if (workbenchLayoutMode === 'tabs') {
-                            setWorkbenchLayoutMode('tabs')
-                          }
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          setContextMenu({ x: e.clientX, y: e.clientY, tabKey: tab.key })
-                        }}
-                        className="group h-7 px-3 rounded-md flex items-center gap-2 text-xs max-w-[200px] flex-shrink-0 transition-colors"
-                        style={{
-                          color: isActive ? colors.text : colors.textSecondary,
-                          backgroundColor: isActive ? colors.bgPrimary : 'transparent',
-                          border: `1px solid ${isActive ? colors.border : 'transparent'}`,
-                        }}
-                      >
-                        <span className="truncate">{tab.name}</span>
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            closeTab(tab.key)
-                          }}
-                          className="opacity-0 group-hover:opacity-60 hover:!opacity-100 flex items-center justify-center w-4 h-4 rounded-sm"
-                          style={{ backgroundColor: isActive ? 'rgba(255,255,255,0.1)' : 'transparent' }}
-                        >
-                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                          </svg>
-                        </span>
-                      </button>
-                    )
-                  })}
-                  {openTabs.length === 0 && (
-                    <span className="text-xs px-2" style={{ color: colors.textDim }}>
-                      点击左侧文件树打开文件
-                    </span>
                   )}
-                </div>
 
-                {/* 右侧下拉菜单按钮 */}
-                {openTabs.length > 0 && (
-                  <div className="relative flex-shrink-0 flex items-center pl-1 border-l" style={{ borderColor: colors.border }}>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setDropdownOpen(!dropdownOpen)
-                      }}
-                      className="h-7 px-2 rounded-md flex items-center gap-1 text-xs hover:bg-white/5 transition-colors"
-                      style={{ color: colors.textSecondary }}
-                    >
-                      <span className="font-mono text-[10px] bg-black/10 px-1 rounded">{openTabs.length}</span>
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                      </svg>
-                    </button>
-                    
-                    {/* 下拉菜单面板 */}
-                    {dropdownOpen && (
-                      <div 
-                        className="absolute top-full right-0 mt-1 w-56 rounded-md shadow-lg border py-1 z-50 max-h-80 overflow-y-auto"
-                        style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
-                      >
-                        <div className="px-3 py-1.5 text-[11px] uppercase font-medium tracking-wider border-b mb-1" style={{ color: colors.textDim, borderColor: colors.border }}>
-                          打开的文件
-                        </div>
-                        {openTabs.map((tab) => (
-                          <button
-                            key={`menu-${tab.key}`}
-                            className="w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-white/5 transition-colors"
-                            style={{ color: activeTabKey === tab.key ? colors.accent : colors.text }}
-                            onClick={() => {
-                              setActiveFileTab(tab.key)
-                              setIsTerminalActive(false)
-                              setDropdownOpen(false)
+                  {/* 文件标签区域 */}
+                  <div 
+                    ref={tabsScrollRef}
+                    className="flex-1 h-full flex items-center px-2 gap-1 overflow-x-auto no-scrollbar"
+                  >
+                    {openTabs.map((tab) => {
+                      const isActive = activeTabKey === tab.key
+                      return (
+                        <button
+                          key={tab.key}
+                          data-tab-key={tab.key}
+                          onClick={() => {
+                            setActiveFileTab(tab.key)
+                            setIsTerminalActive(false)
+                            if (workbenchLayoutMode === 'tabs') {
+                              setWorkbenchLayoutMode('tabs')
+                            }
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setContextMenu({ x: e.clientX, y: e.clientY, tabKey: tab.key })
+                          }}
+                          className="group h-7 px-3 rounded-md flex items-center gap-2 text-xs max-w-[200px] flex-shrink-0 transition-colors"
+                          style={{
+                            color: isActive ? colors.text : colors.textSecondary,
+                            backgroundColor: isActive ? colors.bgPrimary : 'transparent',
+                            border: `1px solid ${isActive ? colors.border : 'transparent'}`,
+                          }}
+                        >
+                          <span className="truncate">{tab.name}</span>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              closeTab(tab.key)
                             }}
+                            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 flex items-center justify-center w-4 h-4 rounded-sm"
+                            style={{ backgroundColor: isActive ? 'rgba(255,255,255,0.1)' : 'transparent' }}
                           >
-                            <span className="truncate pr-4">{tab.name}</span>
-                            <span 
-                              className="opacity-60 hover:opacity-100 flex-shrink-0"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                closeTab(tab.key)
-                              }}
-                            >
-                              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                              </svg>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <line x1="18" y1="6" x2="6" y2="18"></line>
+                              <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                          </span>
+                        </button>
+                      )
+                    })}
+                    {openTabs.length === 0 && (
+                      <span className="text-xs px-2" style={{ color: colors.textDim }}>
+                        点击左侧文件树打开文件
+                      </span>
                     )}
                   </div>
-                )}
-              </div>
+
+                  {/* 右侧下拉菜单按钮 */}
+                  {openTabs.length > 0 && (
+                    <div className="relative flex-shrink-0 flex items-center pl-1 border-l" style={{ borderColor: colors.border }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDropdownOpen(!dropdownOpen)
+                        }}
+                        className="h-7 px-2 rounded-md flex items-center gap-1 text-xs hover:bg-white/5 transition-colors"
+                        style={{ color: colors.textSecondary }}
+                      >
+                        <span className="font-mono text-[10px] bg-black/10 px-1 rounded">{openTabs.length}</span>
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                      </button>
+                      
+                      {/* 下拉菜单面板 */}
+                      {dropdownOpen && (
+                        <div 
+                          className="absolute top-full right-0 mt-1 w-56 rounded-md shadow-lg border py-1 z-50 max-h-80 overflow-y-auto"
+                          style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
+                        >
+                          <div className="px-3 py-1.5 text-[11px] uppercase font-medium tracking-wider border-b mb-1" style={{ color: colors.textDim, borderColor: colors.border }}>
+                            打开的文件
+                          </div>
+                          {openTabs.map((tab) => (
+                            <button
+                              key={`menu-${tab.key}`}
+                              className="w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-white/5 transition-colors"
+                              style={{ color: activeTabKey === tab.key ? colors.accent : colors.text }}
+                              onClick={() => {
+                                setActiveFileTab(tab.key)
+                                setIsTerminalActive(false)
+                                setDropdownOpen(false)
+                              }}
+                            >
+                              <span className="truncate pr-4">{tab.name}</span>
+                              <span 
+                                className="opacity-60 hover:opacity-100 flex-shrink-0"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  closeTab(tab.key)
+                                }}
+                              >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 内容区域 */}
               <div className="flex-1 min-w-0 relative">
-                {/* 标签模式 */}
-                {(workbenchLayoutMode === 'tabs' || !terminalVisible) && (
+                {activeTab === 'sftp' ? (
+                  <div className="absolute inset-0">
+                    <SFTPWorkspace />
+                  </div>
+                ) : (
                   <>
-                    {/* 终端标签 */}
-                    {terminalVisible && isTerminalActive && (
-                      <div className="absolute inset-0">
-                        <TerminalPanel 
-                          keepSessionOnUnmount={true}
-                          onTerminalSessionChange={handleTerminalSessionChange} 
+                    {/* 标签模式 */}
+                    {(workbenchLayoutMode === 'tabs' || !terminalVisible) && (
+                      <>
+                        {/* 终端标签 */}
+                        {terminalVisible && isTerminalActive && (
+                          <div className="absolute inset-0">
+                            <TerminalPanel 
+                              keepSessionOnUnmount={true}
+                              onTerminalSessionChange={handleTerminalSessionChange} 
+                            />
+                          </div>
+                        )}
+                        {/* 文件标签 */}
+                        {(!terminalVisible || !isTerminalActive || openTabs.length > 0) && (
+                          <div className="absolute inset-0">
+                            <FileWorkspace />
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* 水平分屏模式（文件在上，终端在下） */}
+                    {workbenchLayoutMode === 'split-horizontal' && terminalVisible && (
+                      <div className="absolute inset-0 flex flex-col">
+                        <div className="flex-1 min-h-0">
+                          <FileWorkspace />
+                        </div>
+                        <div 
+                          className="h-1 cursor-row-resize hover:bg-blue-500/30" 
+                          style={{ backgroundColor: isResizingTerminal ? colors.accent : 'transparent' }}
+                          onMouseDown={handleTerminalResizeStart}
                         />
+                        <div style={{ height: terminalPanelSize, minHeight: 150 }}>
+                          <TerminalPanel 
+                            keepSessionOnUnmount={true}
+                            onTerminalSessionChange={handleTerminalSessionChange} 
+                          />
+                        </div>
                       </div>
                     )}
-                    {/* 文件标签 */}
-                    {(!terminalVisible || !isTerminalActive || openTabs.length > 0) && (
-                      <div className="absolute inset-0">
-                        <FileWorkspace />
+
+                    {/* 垂直分屏模式（文件在左，终端在右） */}
+                    {workbenchLayoutMode === 'split-vertical' && terminalVisible && (
+                      <div className="absolute inset-0 flex flex-row">
+                        <div className="flex-1 min-w-0">
+                          <FileWorkspace />
+                        </div>
+                        <div 
+                          className="w-1 cursor-col-resize hover:bg-blue-500/30" 
+                          style={{ backgroundColor: isResizingTerminal ? colors.accent : 'transparent' }}
+                          onMouseDown={handleTerminalResizeStart}
+                        />
+                        <div style={{ width: terminalPanelSize, minWidth: 250 }}>
+                          <TerminalPanel 
+                            keepSessionOnUnmount={true}
+                            onTerminalSessionChange={handleTerminalSessionChange} 
+                          />
+                        </div>
                       </div>
                     )}
                   </>
                 )}
-
-                {/* 水平分屏模式（文件在上，终端在下） */}
-                {workbenchLayoutMode === 'split-horizontal' && terminalVisible && (
-                  <div className="absolute inset-0 flex flex-col">
-                    <div className="flex-1 min-h-0">
-                      <FileWorkspace />
-                    </div>
-                    <div 
-                      className="h-1 cursor-row-resize hover:bg-blue-500/30" 
-                      style={{ backgroundColor: isResizingTerminal ? colors.accent : 'transparent' }}
-                      onMouseDown={handleTerminalResizeStart}
-                    />
-                    <div style={{ height: terminalPanelSize, minHeight: 150 }}>
-                      <TerminalPanel 
-                        keepSessionOnUnmount={true}
-                        onTerminalSessionChange={handleTerminalSessionChange} 
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* 垂直分屏模式（文件在左，终端在右） */}
-                {workbenchLayoutMode === 'split-vertical' && terminalVisible && (
-                  <div className="absolute inset-0 flex flex-row">
-                    <div className="flex-1 min-w-0">
-                      <FileWorkspace />
-                    </div>
-                    <div 
-                      className="w-1 cursor-col-resize hover:bg-blue-500/30" 
-                      style={{ backgroundColor: isResizingTerminal ? colors.accent : 'transparent' }}
-                      onMouseDown={handleTerminalResizeStart}
-                    />
-                    <div style={{ width: terminalPanelSize, minWidth: 250 }}>
-                      <TerminalPanel 
-                        keepSessionOnUnmount={true}
-                        onTerminalSessionChange={handleTerminalSessionChange} 
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
+            </div>
+          )}
+
+          {/* SFTP 传输面板 */}
+          {activeTab === 'sftp' && (
+            <div className="h-full">
+              <SFTPWorkspace />
             </div>
           )}
 
