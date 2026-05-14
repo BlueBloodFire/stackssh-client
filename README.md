@@ -1,7 +1,8 @@
-# Tauri + React + Typescript
+# walissh-client ai shell 智能终端
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+**启动脚本** 
 
-## Recommended IDE Setup
+- mac：`walissh-client/docs/dev-ops/start-dev.sh`
+- windows：`walissh-client/docs/dev-ops/start-dev.bat`
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+>注意，先启动服务端 walissh-server。把ssh 的操作操作，ai的操作，统一放到服务端，可以更有效的统一控制风险（企业中最为常见的做法）。如果都在客户端，可能会有人误操作执行危险命令，或者把核心服务器信息泄露。
