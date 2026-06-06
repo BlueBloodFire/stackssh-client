@@ -219,7 +219,27 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
 
   refreshCurrentPath: async (connectionId) => {
     const currentPath = get().currentPathByConnection[connectionId] || ''
+    const expanded = get().expandedByConnection[connectionId] || []
+
     await get().navigateToPath(connectionId, currentPath)
+
+    const subPaths = expanded.filter((p) => p !== currentPath)
+    if (subPaths.length === 0) return
+
+    await Promise.all(
+      subPaths.map(async (path) => {
+        const res = await getFileTree(connectionId, path)
+        if (res.code === '0000' && res.data) {
+          set((state) => {
+            const connectionChildren = { ...(state.childrenByConnection[connectionId] || {}) }
+            connectionChildren[path] = res.data!.items
+            return {
+              childrenByConnection: { ...state.childrenByConnection, [connectionId]: connectionChildren },
+            }
+          })
+        }
+      })
+    )
   },
 
   refreshDirectory: async (connectionId, path) => {

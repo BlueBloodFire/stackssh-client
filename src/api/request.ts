@@ -15,7 +15,7 @@ export interface ApiResponse<T = unknown> {
 }
 
 /** 默认服务端地址 */
-const DEFAULT_SERVER_URL = 'http://localhost:8091'
+const DEFAULT_SERVER_URL = 'http://124.220.1.39:8091'
 
 /**
  * 服务端基础地址

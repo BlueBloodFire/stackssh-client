@@ -304,3 +304,78 @@ export function chatStream(
     terminalSessionId,
   )
 }
+
+// ============================================================
+// 模型配置 API
+// ============================================================
+
+export interface ModelConfigDTO {
+  apiKey: string
+  baseUrl: string
+  model: string
+  completionsPath?: string
+  embeddingsPath?: string
+}
+
+export async function getModelConfig(agentId: string): Promise<ModelConfigDTO | null> {
+  try {
+    const res = await get<ModelConfigDTO>(`/api/v1/agent-config/model/${agentId}`)
+    if (res.code === '0000' && res.data) return res.data
+    return null
+  } catch {
+    return null
+  }
+}
+
+export async function updateModelConfig(agentId: string, config: ModelConfigDTO): Promise<boolean> {
+  try {
+    const res = await post(`/api/v1/agent-config/model/${agentId}`, config)
+    return res.code === '0000'
+  } catch {
+    return false
+  }
+}
+
+// ============================================================
+// 工具配置 API（MCPs + Skills）
+// ============================================================
+
+export interface McpConfigDTO {
+  type: 'local' | 'sse' | 'stdio'
+  name?: string
+  baseUri?: string
+  sseEndpoint?: string
+  requestTimeout?: number
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+export interface SkillsConfigDTO {
+  type: 'resource' | 'directory'
+  path: string
+}
+
+export interface ToolsConfigDTO {
+  mcpList: McpConfigDTO[]
+  skillsList: SkillsConfigDTO[]
+}
+
+export async function getToolsConfig(agentId: string): Promise<ToolsConfigDTO | null> {
+  try {
+    const res = await get<ToolsConfigDTO>(`/api/v1/agent-config/tools/${agentId}`)
+    if (res.code === '0000' && res.data) return res.data
+    return null
+  } catch {
+    return null
+  }
+}
+
+export async function updateToolsConfig(agentId: string, config: ToolsConfigDTO): Promise<boolean> {
+  try {
+    const res = await post(`/api/v1/agent-config/tools/${agentId}`, config)
+    return res.code === '0000'
+  } catch {
+    return false
+  }
+}

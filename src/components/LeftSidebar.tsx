@@ -6,6 +6,9 @@ import { SSHConnectionModal } from './SSHConnectionModal'
 import { useFileExplorerStore, formatFileSize } from '../stores/fileExplorerStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
 import { getFileContent, createFile, createDirectory, renameFile, deleteFile, downloadFileUrl, uploadFile } from '../api/sshFile'
+import { useAgentStore } from '../stores/agentStore'
+import { getToolsConfig, updateToolsConfig } from '../api/agent'
+import type { McpConfigDTO, SkillsConfigDTO } from '../api/agent'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
@@ -76,6 +79,7 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     setSelectedPath,
     openFile,
     refreshDirectory,
+    refreshCurrentPath,
   } = useFileExplorerStore()
 
   const currentConn = connections.find((c) => c.id === currentConnectionId)
@@ -105,6 +109,25 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
   
   const [isRemoteDragging, setIsRemoteDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
+
+  // ===== Extensions (Tools) =====
+  const { currentAgentId } = useAgentStore()
+  const [toolsConfig, setToolsConfig] = useState<{ mcpList: McpConfigDTO[]; skillsList: SkillsConfigDTO[] } | null>(null)
+  const [toolsLoading, setToolsLoading] = useState(false)
+  const [toolsSaving, setToolsSaving] = useState(false)
+  const [toolsError, setToolsError] = useState<string | null>(null)
+  const [toolsSaveOk, setToolsSaveOk] = useState(false)
+  const [addMcpOpen, setAddMcpOpen] = useState(false)
+  const [addMcpType, setAddMcpType] = useState<'local' | 'sse' | 'stdio'>('sse')
+  const [addMcpName, setAddMcpName] = useState('')
+  const [addMcpBaseUri, setAddMcpBaseUri] = useState('')
+  const [addMcpSseEndpoint, setAddMcpSseEndpoint] = useState('/sse')
+  const [addMcpCommand, setAddMcpCommand] = useState('')
+  const [addMcpArgs, setAddMcpArgs] = useState('')
+  const [addMcpTimeout, setAddMcpTimeout] = useState(30000)
+  const [addSkillOpen, setAddSkillOpen] = useState(false)
+  const [addSkillType, setAddSkillType] = useState<'resource' | 'directory'>('resource')
+  const [addSkillPath, setAddSkillPath] = useState('')
   const [progress, setProgress] = useState<{ total: number; current: number; currentFile: string } | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -406,12 +429,79 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     }
   }, [activeTab, currentConnectionId, activeFileConnectionId, switchConnection])
 
+  useEffect(() => {
+    if (activeTab !== 'extensions' || !currentAgentId) return
+    setToolsLoading(true)
+    setToolsError(null)
+    getToolsConfig(currentAgentId).then(cfg => {
+      setToolsConfig(cfg ?? { mcpList: [], skillsList: [] })
+      setToolsLoading(false)
+    }).catch(() => {
+      setToolsError('加载工具配置失败')
+      setToolsLoading(false)
+    })
+  }, [activeTab, currentAgentId])
+
+  const handleDeleteMcp = (idx: number) => {
+    if (!toolsConfig) return
+    setToolsConfig({ ...toolsConfig, mcpList: toolsConfig.mcpList.filter((_, i) => i !== idx) })
+  }
+
+  const handleDeleteSkill = (idx: number) => {
+    if (!toolsConfig) return
+    setToolsConfig({ ...toolsConfig, skillsList: toolsConfig.skillsList.filter((_, i) => i !== idx) })
+  }
+
+  const handleAddMcp = () => {
+    if (!toolsConfig || !addMcpName.trim()) return
+    let mcp: McpConfigDTO = { type: addMcpType, name: addMcpName.trim() }
+    if (addMcpType === 'sse') {
+      mcp = { ...mcp, baseUri: addMcpBaseUri, sseEndpoint: addMcpSseEndpoint, requestTimeout: addMcpTimeout }
+    } else if (addMcpType === 'stdio') {
+      const args = addMcpArgs ? addMcpArgs.split(',').map(a => a.trim()).filter(Boolean) : []
+      mcp = { ...mcp, command: addMcpCommand, args, requestTimeout: addMcpTimeout }
+    }
+    setToolsConfig({ ...toolsConfig, mcpList: [...toolsConfig.mcpList, mcp] })
+    setAddMcpOpen(false)
+    setAddMcpName(''); setAddMcpBaseUri(''); setAddMcpSseEndpoint('/sse'); setAddMcpCommand(''); setAddMcpArgs('')
+  }
+
+  const handleAddSkill = () => {
+    if (!toolsConfig || !addSkillPath.trim()) return
+    setToolsConfig({ ...toolsConfig, skillsList: [...toolsConfig.skillsList, { type: addSkillType, path: addSkillPath.trim() }] })
+    setAddSkillOpen(false)
+    setAddSkillPath('')
+  }
+
+  const handleSaveTools = async () => {
+    if (!toolsConfig || !currentAgentId) return
+    setToolsSaving(true)
+    setToolsError(null)
+    const ok = await updateToolsConfig(currentAgentId, toolsConfig)
+    setToolsSaving(false)
+    if (ok) {
+      setToolsSaveOk(true)
+      setTimeout(() => setToolsSaveOk(false), 2500)
+    } else {
+      setToolsError('保存失败，请重试')
+    }
+  }
+
   const browsingConnectionId = activeFileConnectionId || currentConnectionId
   const browsingConnection = connections.find((c) => c.id === browsingConnectionId) || null
   const currentPath = browsingConnectionId ? currentPathByConnection[browsingConnectionId] : ''
   const selectedPath = browsingConnectionId ? selectedPathByConnection[browsingConnectionId] : ''
   const homePath = browsingConnectionId ? homePathByConnection[browsingConnectionId] : ''
   const rootPath = browsingConnectionId ? rootPathByConnection[browsingConnectionId] : '/'
+
+  const handleFileListRefresh = () => {
+    if (!browsingConnectionId) return
+    void refreshCurrentPath(browsingConnectionId)
+  }
+
+  const isFileListLoading = browsingConnectionId
+    ? !!loadingRootByConnection[browsingConnectionId]
+    : false
 
   const crumbs = useMemo(() => {
     if (!currentPath) return []
@@ -823,7 +913,12 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
   return (
     <div className="flex flex-col h-full min-w-0" style={{ backgroundColor: colors.bgSecondary }}>
       <div className="h-9 flex items-center justify-between px-4 border-b flex-shrink-0" style={{ borderColor: colors.border }}>
-        <span className="text-xs font-medium uppercase tracking-wider" style={{ color: colors.textSecondary }}>{tabLabels[activeTab]}</span>
+        <div className="flex items-center min-w-0 flex-1">
+          <span className="text-xs font-medium uppercase tracking-wider flex-shrink-0" style={{ color: colors.textSecondary }}>{tabLabels[activeTab]}</span>
+          {currentConn && activeTab === 'files' && (
+            <span className="ml-2 text-xs font-mono truncate" style={{ color: colors.textDim }}>— {currentConn.name}</span>
+          )}
+        </div>
         {activeTab === 'servers' && (
           <button onClick={handleRefresh} className="w-5 h-5 flex items-center justify-center rounded transition-colors" style={{ color: colors.textDim }} onMouseEnter={(e) => { e.currentTarget.style.color = colors.accent }} onMouseLeave={(e) => { e.currentTarget.style.color = colors.textDim }} title="刷新连接列表">
             <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -832,8 +927,21 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
             </svg>
           </button>
         )}
-        {currentConn && activeTab === 'files' && (
-          <span className="ml-2 text-xs font-mono truncate" style={{ color: colors.textDim }}>— {currentConn.name}</span>
+        {(activeTab === 'files' || activeTab === 'sftp') && browsingConnectionId && (
+          <button
+            onClick={handleFileListRefresh}
+            disabled={isFileListLoading}
+            className="w-5 h-5 flex items-center justify-center rounded transition-colors disabled:opacity-50"
+            style={{ color: colors.textDim }}
+            onMouseEnter={(e) => { if (!isFileListLoading) e.currentTarget.style.color = colors.accent }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = colors.textDim }}
+            title="刷新文件列表"
+          >
+            <svg className={`w-3.5 h-3.5 ${isFileListLoading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M23 4v6h-6M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+          </button>
         )}
       </div>
 
@@ -1130,15 +1238,171 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
             )}
           </div>
         ) : (
-          <div className="text-center py-10 px-4">
-            <svg className="w-12 h-12 mx-auto mb-3 opacity-30" viewBox="0 0 24 24" fill="none" stroke={colors.textDim} strokeWidth="1.5">
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
-            <p className="text-sm" style={{ color: colors.textSecondary }}>扩展</p>
-            <p className="text-xs mt-1" style={{ color: colors.textDim }}>敬请期待</p>
+          <div className="flex flex-col h-full">
+            {!currentAgentId ? (
+              <div className="text-center py-10 px-4">
+                <p className="text-sm" style={{ color: colors.textSecondary }}>请先在对话面板选择 Agent</p>
+              </div>
+            ) : toolsLoading ? (
+              <div className="flex items-center justify-center py-10 gap-2">
+                <svg className="w-4 h-4 animate-spin" style={{ color: colors.accent }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                <span className="text-xs" style={{ color: colors.textSecondary }}>加载工具配置...</span>
+              </div>
+            ) : toolsConfig ? (
+              <div className="flex flex-col flex-1 overflow-hidden">
+                <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4">
+                  {toolsError && (
+                    <div className="text-[11px] px-2 py-1.5 rounded" style={{ backgroundColor: `${colors.red}15`, color: colors.red, border: `1px solid ${colors.red}30` }}>{toolsError}</div>
+                  )}
+
+                  {/* ── MCP 工具 ── */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: colors.textDim }}>MCP 工具</span>
+                      <button onClick={() => setAddMcpOpen(!addMcpOpen)} className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors" style={{ backgroundColor: addMcpOpen ? colors.accent : colors.bgTertiary, color: addMcpOpen ? '#fff' : colors.textSecondary, border: `1px solid ${colors.border}` }}>
+                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        添加
+                      </button>
+                    </div>
+
+                    {addMcpOpen && (
+                      <div className="mb-2 p-2.5 rounded-lg space-y-2" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>类型</label>
+                            <select value={addMcpType} onChange={e => setAddMcpType(e.target.value as any)} className="w-full text-[11px] px-2 py-1 rounded" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}>
+                              <option value="sse">SSE</option>
+                              <option value="stdio">Stdio</option>
+                              <option value="local">Local</option>
+                            </select>
+                          </div>
+                          <div className="flex-1">
+                            <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>名称</label>
+                            <input value={addMcpName} onChange={e => setAddMcpName(e.target.value)} placeholder="my-mcp" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                          </div>
+                        </div>
+                        {addMcpType === 'sse' && (
+                          <>
+                            <div>
+                              <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>Base URI</label>
+                              <input value={addMcpBaseUri} onChange={e => setAddMcpBaseUri(e.target.value)} placeholder="http://localhost:8090" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>SSE 端点</label>
+                              <input value={addMcpSseEndpoint} onChange={e => setAddMcpSseEndpoint(e.target.value)} placeholder="/sse" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                            </div>
+                          </>
+                        )}
+                        {addMcpType === 'stdio' && (
+                          <>
+                            <div>
+                              <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>命令</label>
+                              <input value={addMcpCommand} onChange={e => setAddMcpCommand(e.target.value)} placeholder="node /path/to/server.js" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>参数（逗号分隔）</label>
+                              <input value={addMcpArgs} onChange={e => setAddMcpArgs(e.target.value)} placeholder="--port,8080" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                            </div>
+                          </>
+                        )}
+                        {addMcpType !== 'local' && (
+                          <div>
+                            <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>超时(ms)</label>
+                            <input type="number" value={addMcpTimeout} onChange={e => setAddMcpTimeout(Number(e.target.value))} className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                          </div>
+                        )}
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={handleAddMcp} disabled={!addMcpName.trim()} className="flex-1 py-1 rounded text-[11px] font-medium transition-colors" style={{ backgroundColor: addMcpName.trim() ? colors.accent : colors.bgTertiary, color: addMcpName.trim() ? '#fff' : colors.textDim }}>确认添加</button>
+                          <button onClick={() => setAddMcpOpen(false)} className="px-3 py-1 rounded text-[11px] transition-colors" style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}>取消</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {toolsConfig.mcpList.length === 0 ? (
+                      <p className="text-[11px] px-1" style={{ color: colors.textDim }}>暂无 MCP 工具</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {toolsConfig.mcpList.map((mcp, idx) => (
+                          <div key={idx} className="flex items-center justify-between px-2 py-1.5 rounded" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium shrink-0" style={{ backgroundColor: `${colors.accent}20`, color: colors.accent }}>{mcp.type}</span>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-medium truncate" style={{ color: colors.text }}>{mcp.name || '—'}</p>
+                                {mcp.baseUri && <p className="text-[10px] truncate font-mono" style={{ color: colors.textDim }}>{mcp.baseUri}</p>}
+                                {mcp.command && <p className="text-[10px] truncate font-mono" style={{ color: colors.textDim }}>{mcp.command}</p>}
+                              </div>
+                            </div>
+                            <button onClick={() => handleDeleteMcp(idx)} className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10 transition-colors" style={{ color: colors.textDim }}>
+                              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Skills ── */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: colors.textDim }}>Skills</span>
+                      <button onClick={() => setAddSkillOpen(!addSkillOpen)} className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors" style={{ backgroundColor: addSkillOpen ? colors.accent : colors.bgTertiary, color: addSkillOpen ? '#fff' : colors.textSecondary, border: `1px solid ${colors.border}` }}>
+                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        添加
+                      </button>
+                    </div>
+
+                    {addSkillOpen && (
+                      <div className="mb-2 p-2.5 rounded-lg space-y-2" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
+                        <div>
+                          <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>类型</label>
+                          <select value={addSkillType} onChange={e => setAddSkillType(e.target.value as any)} className="w-full text-[11px] px-2 py-1 rounded" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}>
+                            <option value="resource">resource（单文件）</option>
+                            <option value="directory">directory（目录）</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>路径</label>
+                          <input value={addSkillPath} onChange={e => setAddSkillPath(e.target.value)} placeholder="classpath:agent/skills/my-skill/reference.md" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={handleAddSkill} disabled={!addSkillPath.trim()} className="flex-1 py-1 rounded text-[11px] font-medium transition-colors" style={{ backgroundColor: addSkillPath.trim() ? colors.accent : colors.bgTertiary, color: addSkillPath.trim() ? '#fff' : colors.textDim }}>确认添加</button>
+                          <button onClick={() => setAddSkillOpen(false)} className="px-3 py-1 rounded text-[11px] transition-colors" style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}>取消</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {toolsConfig.skillsList.length === 0 ? (
+                      <p className="text-[11px] px-1" style={{ color: colors.textDim }}>暂无 Skill</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {toolsConfig.skillsList.map((skill, idx) => (
+                          <div key={idx} className="flex items-center justify-between px-2 py-1.5 rounded" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium shrink-0" style={{ backgroundColor: `${colors.green}20`, color: colors.green }}>{skill.type}</span>
+                              <p className="text-[11px] truncate font-mono" style={{ color: colors.textSecondary }}>{skill.path}</p>
+                            </div>
+                            <button onClick={() => handleDeleteSkill(idx)} className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10 transition-colors" style={{ color: colors.textDim }}>
+                              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── 保存按钮 ── */}
+                <div className="px-3 py-2.5 border-t shrink-0" style={{ borderColor: colors.border }}>
+                  <button onClick={handleSaveTools} disabled={toolsSaving} className="w-full py-2 rounded-lg text-[12px] font-medium transition-colors" style={{ backgroundColor: toolsSaveOk ? colors.green : colors.accent, color: '#fff', opacity: toolsSaving ? 0.7 : 1 }}>
+                    {toolsSaving ? '保存中...' : toolsSaveOk ? '✓ 已保存' : '保存配置'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-10"><p className="text-xs" style={{ color: colors.textDim }}>加载失败</p></div>
+            )}
           </div>
         )}
       </div>

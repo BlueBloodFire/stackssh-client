@@ -190,22 +190,26 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
 
   disconnect: async (id) => {
     set({ error: null })
+    // 无论 API 是否成功，立即在本地将连接标记为断开
+    // 避免服务端不可达时连接状态仍显示为"已连接"
+    const markLocalDisconnected = () =>
+      set((state) => ({
+        connections: state.connections.map((c) =>
+          c.id === id ? { ...c, status: ConnectionStatus.DISCONNECTED } : c
+        ),
+      }))
     try {
       const res = await sshApi.disconnect(id)
-      if (res.code === '0000') {
-        // 更新本地状态为未连接
-        set((state) => ({
-          connections: state.connections.map((c) =>
-            c.id === id ? { ...c, status: 0 } : c
-          ),
-        }))
-        return true
+      markLocalDisconnected()
+      if (res.code !== '0000') {
+        set({ error: res.info || '断开连接失败' })
       }
-      set({ error: res.info || '断开连接失败' })
-      return false
+      return true
     } catch {
-      set({ error: '网络错误，无法连接服务器' })
-      return false
+      // 服务端不可达（ECONNREFUSED等），本地仍需标记断开
+      markLocalDisconnected()
+      set({ error: '服务器不可达，已在本地标记断开' })
+      return true
     }
   },
 

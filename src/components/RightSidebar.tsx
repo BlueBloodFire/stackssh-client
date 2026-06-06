@@ -220,6 +220,33 @@ interface RightSidebarProps {
   activeTerminalSessionId?: string | null
 }
 
+// ── 多模型配置 ──────────────────────────────────────────────────
+
+interface ModelProfile {
+  id: string
+  name: string
+  model: string
+  baseUrl: string
+  apiKey?: string
+}
+
+const MODEL_PRESETS: ModelProfile[] = [
+  { id: 'deepseek-chat',    name: 'DeepSeek Chat',  model: 'deepseek-chat',                    baseUrl: 'https://api.deepseek.com' },
+  { id: 'deepseek-v3',      name: 'DS V3',           model: 'deepseek-v3',                      baseUrl: 'https://api.deepseek.com' },
+  { id: 'deepseek-r1',      name: 'DS R1',           model: 'deepseek-reasoner',                baseUrl: 'https://api.deepseek.com' },
+  { id: 'gpt-4o',           name: 'GPT-4o',          model: 'gpt-4o',                           baseUrl: 'https://api.openai.com' },
+  { id: 'gpt-4o-mini',      name: 'GPT-4o mini',     model: 'gpt-4o-mini',                      baseUrl: 'https://api.openai.com' },
+  { id: 'qwen-plus',        name: 'Qwen Plus',       model: 'qwen-plus',                        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { id: 'qwen-max',         name: 'Qwen Max',        model: 'qwen-max',                         baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { id: 'claude-sonnet',    name: 'Claude Sonnet',   model: 'claude-sonnet-4-5-20251001',       baseUrl: 'https://api.anthropic.com' },
+]
+
+const PROFILES_KEY = 'stackssh_model_profiles'
+const loadStoredProfiles = (): ModelProfile[] => {
+  try { return JSON.parse(localStorage.getItem(PROFILES_KEY) || '[]') } catch { return [] }
+}
+const persistProfiles = (p: ModelProfile[]) => localStorage.setItem(PROFILES_KEY, JSON.stringify(p))
+
 function escapeHtml(text: string) {
   return text
     .replace(/&/g, '&amp;')
@@ -285,6 +312,20 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false)
   const [inputKey, setInputKey] = useState(0)
   const abortRef = useRef<(() => void) | null>(null)
+
+  // ===== 模型配置 =====
+  const [showModelConfig, setShowModelConfig] = useState(false)
+  const [modelForm, setModelForm] = useState({ model: '', apiKey: '', baseUrl: '' })
+  const [modelLoading, setModelLoading] = useState(false)
+  const [modelSaving, setModelSaving] = useState(false)
+  const [modelSaveOk, setModelSaveOk] = useState(false)
+  const [modelError, setModelError] = useState<string | null>(null)
+  const [showApiKey, setShowApiKey] = useState(false)
+  // 多模型配置
+  const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>(() => loadStoredProfiles())
+  const [showSaveProfile, setShowSaveProfile] = useState(false)
+  const [saveProfileName, setSaveProfileName] = useState('')
+  const [saveApiKeyInProfile, setSaveApiKeyInProfile] = useState(false)
 
   const { openTabs, activeTabKey, activeConnectionId, currentPathByConnection } = useFileExplorerStore()
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
@@ -632,6 +673,81 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     setShowSendModeDropdown(false)
   }
 
+  // 打开模型配置时加载
+  useEffect(() => {
+    if (!showModelConfig || !currentAgentId) return
+    setModelLoading(true)
+    setModelError(null)
+    agentApi.getModelConfig(currentAgentId).then(cfg => {
+      if (cfg) setModelForm({ model: cfg.model || '', apiKey: cfg.apiKey || '', baseUrl: cfg.baseUrl || '' })
+      setModelLoading(false)
+    }).catch(() => setModelLoading(false))
+  }, [showModelConfig, currentAgentId])
+
+  const handleSaveModel = async () => {
+    if (!currentAgentId) return
+    setModelSaving(true)
+    setModelError(null)
+    const ok = await agentApi.updateModelConfig(currentAgentId, {
+      model: modelForm.model,
+      apiKey: modelForm.apiKey,
+      baseUrl: modelForm.baseUrl,
+    })
+    setModelSaving(false)
+    if (ok) {
+      setModelSaveOk(true)
+      setTimeout(() => setModelSaveOk(false), 2500)
+    } else {
+      setModelError('保存失败，请重试')
+    }
+  }
+
+  // 应用某个 profile（预设或自定义），填表单并立即推送到服务端
+  const handleApplyProfile = async (profile: ModelProfile) => {
+    if (!currentAgentId) return
+    const newForm = {
+      model: profile.model,
+      baseUrl: profile.baseUrl,
+      apiKey: profile.apiKey || modelForm.apiKey,
+    }
+    setModelForm(newForm)
+    setModelSaving(true)
+    setModelError(null)
+    const ok = await agentApi.updateModelConfig(currentAgentId, newForm)
+    setModelSaving(false)
+    if (ok) {
+      setModelSaveOk(true)
+      setTimeout(() => setModelSaveOk(false), 2500)
+    } else {
+      setModelError('切换失败')
+    }
+  }
+
+  // 保存当前表单为自定义配置
+  const handleSaveProfile = () => {
+    if (!saveProfileName.trim()) return
+    const profile: ModelProfile = {
+      id: Date.now().toString(),
+      name: saveProfileName.trim(),
+      model: modelForm.model,
+      baseUrl: modelForm.baseUrl,
+      ...(saveApiKeyInProfile && modelForm.apiKey ? { apiKey: modelForm.apiKey } : {}),
+    }
+    const updated = [...modelProfiles, profile]
+    setModelProfiles(updated)
+    persistProfiles(updated)
+    setSaveProfileName('')
+    setShowSaveProfile(false)
+    setSaveApiKeyInProfile(false)
+  }
+
+  // 删除自定义配置
+  const handleDeleteProfile = (id: string) => {
+    const updated = modelProfiles.filter(p => p.id !== id)
+    setModelProfiles(updated)
+    persistProfiles(updated)
+  }
+
   const canSend = (inputRef.current?.innerText.trim() || inputTags.length > 0) && currentAgentId && !isLoading
 
   return (
@@ -665,7 +781,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
           <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
             <img src="/logo.png" alt="WaLiSSH" className="w-10 h-10 opacity-50 rounded" />
             <div className="text-center">
-              <p className="text-sm font-medium mb-1" style={{ color: colors.text }}>WaLiSSH AI</p>
+              <p className="text-sm font-medium mb-1" style={{ color: colors.text }}>StackSSH AI</p>
               <p className="text-xs" style={{ color: colors.textDim }}>执行命令 · 排查问题 · 管理服务器</p>
             </div>
             <div className="w-full max-w-xs space-y-1.5">
@@ -763,6 +879,206 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
       </div>
 
       <div className="flex flex-col relative px-4 pt-2 pb-3 flex-shrink-0" style={{ backgroundColor: colors.bgSecondary }}>
+
+        {/* 模型配置面板 */}
+        {showModelConfig && (
+          <div className="mb-2 rounded-lg border p-3 space-y-2.5" style={{ backgroundColor: colors.bgPrimary, borderColor: colors.border }}>
+
+            {/* 标题行 */}
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold" style={{ color: colors.textSecondary }}>模型配置</span>
+              {modelError && <span className="text-[10px]" style={{ color: colors.red }}>{modelError}</span>}
+              {modelSaveOk && <span className="text-[10px]" style={{ color: colors.green }}>✓ 已应用</span>}
+              {modelSaving && <span className="text-[10px]" style={{ color: colors.textDim }}>切换中...</span>}
+            </div>
+
+            {modelLoading ? (
+              <div className="flex items-center gap-2 py-2">
+                <svg className="w-3.5 h-3.5 animate-spin" style={{ color: colors.accent }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                <span className="text-[11px]" style={{ color: colors.textDim }}>加载中...</span>
+              </div>
+            ) : (
+              <>
+                {/* ── 内置预设快选 ── */}
+                <div>
+                  <p className="text-[10px] mb-1" style={{ color: colors.textDim }}>快速切换</p>
+                  <div className="flex flex-wrap gap-1">
+                    {MODEL_PRESETS.map(preset => {
+                      const active = modelForm.model === preset.model && modelForm.baseUrl === preset.baseUrl
+                      return (
+                        <button
+                          key={preset.id}
+                          onClick={() => handleApplyProfile(preset)}
+                          disabled={modelSaving}
+                          className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors"
+                          style={{
+                            backgroundColor: active ? colors.accent : colors.bgTertiary,
+                            color: active ? '#fff' : colors.textSecondary,
+                            border: `1px solid ${active ? colors.accent : colors.border}`,
+                            opacity: modelSaving ? 0.6 : 1,
+                          }}
+                        >
+                          {preset.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* ── 我的配置 ── */}
+                {modelProfiles.length > 0 && (
+                  <div>
+                    <p className="text-[10px] mb-1" style={{ color: colors.textDim }}>我的配置</p>
+                    <div className="flex flex-wrap gap-1">
+                      {modelProfiles.map(p => {
+                        const active = modelForm.model === p.model && modelForm.baseUrl === p.baseUrl
+                        return (
+                          <div key={p.id} className="group flex items-center gap-0.5">
+                            <button
+                              onClick={() => handleApplyProfile(p)}
+                              disabled={modelSaving}
+                              className="px-2 py-0.5 rounded-l text-[10px] font-medium transition-colors"
+                              style={{
+                                backgroundColor: active ? colors.accent : colors.bgTertiary,
+                                color: active ? '#fff' : colors.textSecondary,
+                                border: `1px solid ${active ? colors.accent : colors.border}`,
+                                borderRight: 'none',
+                                opacity: modelSaving ? 0.6 : 1,
+                              }}
+                            >
+                              {p.name}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteProfile(p.id)}
+                              className="px-1 py-0.5 rounded-r text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                              style={{
+                                backgroundColor: active ? colors.accent : colors.bgTertiary,
+                                color: active ? 'rgba(255,255,255,0.7)' : colors.textDim,
+                                border: `1px solid ${active ? colors.accent : colors.border}`,
+                              }}
+                              title="删除该配置"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── 当前配置表单 ── */}
+                <div className="space-y-1.5 pt-0.5" style={{ borderTop: `1px solid ${colors.border}` }}>
+                  <div className="pt-1.5">
+                    <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>模型</label>
+                    <input
+                      value={modelForm.model}
+                      onChange={e => setModelForm(f => ({ ...f, model: e.target.value }))}
+                      placeholder="deepseek-chat / gpt-4o / qwen-plus"
+                      className="w-full text-[11px] px-2 py-1.5 rounded outline-none"
+                      style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>API Key</label>
+                    <div className="flex gap-1">
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={modelForm.apiKey}
+                        onChange={e => setModelForm(f => ({ ...f, apiKey: e.target.value }))}
+                        placeholder="sk-..."
+                        className="flex-1 text-[11px] px-2 py-1.5 rounded outline-none"
+                        style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}
+                      />
+                      <button onClick={() => setShowApiKey(!showApiKey)} className="px-2 rounded flex items-center" style={{ backgroundColor: colors.bgTertiary, border: `1px solid ${colors.border}`, color: colors.textDim }}>
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          {showApiKey
+                            ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                            : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+                          }
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>Base URL</label>
+                    <input
+                      value={modelForm.baseUrl}
+                      onChange={e => setModelForm(f => ({ ...f, baseUrl: e.target.value }))}
+                      placeholder="https://api.openai.com"
+                      className="w-full text-[11px] px-2 py-1.5 rounded outline-none"
+                      style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}
+                    />
+                  </div>
+                </div>
+
+                {/* ── 操作按钮 ── */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveModel}
+                    disabled={modelSaving}
+                    className="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors"
+                    style={{ backgroundColor: colors.accent, color: '#fff', opacity: modelSaving ? 0.7 : 1 }}
+                  >
+                    {modelSaving ? '应用中...' : '应用'}
+                  </button>
+                  <button
+                    onClick={() => { setShowSaveProfile(!showSaveProfile); setSaveProfileName('') }}
+                    className="px-3 py-1.5 rounded text-[11px] transition-colors"
+                    style={{ backgroundColor: showSaveProfile ? colors.accent : colors.bgTertiary, color: showSaveProfile ? '#fff' : colors.textSecondary, border: `1px solid ${colors.border}` }}
+                    title="将当前配置保存为可复用的配置"
+                  >
+                    存为配置
+                  </button>
+                </div>
+
+                {/* ── 保存为配置 展开 ── */}
+                {showSaveProfile && (
+                  <div className="space-y-1.5 p-2 rounded" style={{ backgroundColor: colors.bgSecondary, border: `1px solid ${colors.border}` }}>
+                    <input
+                      value={saveProfileName}
+                      onChange={e => setSaveProfileName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSaveProfile()}
+                      placeholder="配置名称（如：DS 工作账号）"
+                      className="w-full text-[11px] px-2 py-1 rounded outline-none"
+                      style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}
+                      autoFocus
+                    />
+                    <label className="flex items-center gap-1.5 text-[10px] cursor-pointer" style={{ color: colors.textDim }}>
+                      <input
+                        type="checkbox"
+                        checked={saveApiKeyInProfile}
+                        onChange={e => setSaveApiKeyInProfile(e.target.checked)}
+                        className="w-3 h-3"
+                      />
+                      同时保存 API Key（存在浏览器本地）
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleSaveProfile}
+                        disabled={!saveProfileName.trim()}
+                        className="flex-1 py-1 rounded text-[10px] font-medium"
+                        style={{ backgroundColor: saveProfileName.trim() ? colors.accent : colors.bgTertiary, color: saveProfileName.trim() ? '#fff' : colors.textDim }}
+                      >
+                        保存
+                      </button>
+                      <button
+                        onClick={() => setShowSaveProfile(false)}
+                        className="px-3 py-1 rounded text-[10px]"
+                        style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         <div className="relative w-full rounded-lg border transition-all flex flex-col" style={{ backgroundColor: colors.bgInput, borderColor: isFocused ? `${colors.accent}80` : colors.border, boxShadow: isFocused ? `0 0 0 1px ${colors.accent}30` : 'none' }}>
           {inputTags.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3 pb-1 max-h-[100px] overflow-y-auto">
@@ -866,18 +1182,30 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
         </div>
 
         <div className="flex items-center mt-2 text-[11px]" style={{ color: colors.textDim }}>
-          <div className="relative" style={{ zIndex: 10 }}>
-            <select value={currentAgentId || ''} onChange={(e) => setCurrentAgentId(e.target.value)} className="flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors appearance-none pr-6" style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary, fontSize: '11px', border: 'none' }}>
-              {agents.length === 0 && <option value="">加载中...</option>}
-              {agents.map((agent) => (
-                <option key={agent.agentId} value={agent.agentId}>
-                  {agent.agentName}
-                </option>
-              ))}
-            </select>
-            <svg className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ width: 12, height: 12, color: colors.textSecondary, opacity: 0.6 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
+          <div className="flex items-center gap-1.5">
+            <div className="relative" style={{ zIndex: 10 }}>
+              <select value={currentAgentId || ''} onChange={(e) => setCurrentAgentId(e.target.value)} className="flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors appearance-none pr-6" style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary, fontSize: '11px', border: 'none' }}>
+                {agents.length === 0 && <option value="">加载中...</option>}
+                {agents.map((agent) => (
+                  <option key={agent.agentId} value={agent.agentId}>
+                    {agent.agentName}
+                  </option>
+                ))}
+              </select>
+              <svg className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ width: 12, height: 12, color: colors.textSecondary, opacity: 0.6 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+            <button
+              onClick={() => setShowModelConfig(!showModelConfig)}
+              className="p-1 rounded transition-colors hover:bg-black/10"
+              style={{ color: showModelConfig ? colors.accent : colors.textDim }}
+              title="模型配置"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
           </div>
           <div className="flex-1" />
           <div className="relative">

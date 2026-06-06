@@ -81,3 +81,58 @@ export function resizeTerminal(payload: TerminalResizePayload) {
 export function closeTerminal(sessionId: string) {
   return post<void>(`${BASE}/close`, undefined, { sessionId })
 }
+
+/** 危险命令检测结果 */
+export interface CommandCheckResult {
+  dangerous: boolean
+  warning?: string
+  matchedPattern?: string
+}
+
+/** 检测命令是否危险 */
+export function checkCommand(command: string) {
+  return post<CommandCheckResult>(`${BASE}/check-command`, { command })
+}
+
+// ===== 终端录制 API =====
+
+const RECORDING_BASE = `${BASE}/recording`
+
+export interface TerminalRecordingEvent {
+  offsetMs: number
+  data: string  // base64 编码的终端输出
+}
+
+export interface TerminalRecording {
+  id: number
+  recordingId: string
+  connectionId: string
+  sessionId: string
+  cols: number
+  rows: number
+  status: number  // 0=录制中 1=已完成 2=已中断
+  startedAt: string
+  endedAt?: string
+  durationMs?: number
+  events?: TerminalRecordingEvent[]
+}
+
+/** 开始录制 */
+export function startRecording(sessionId: string, connectionId: string) {
+  return post<string>(`${RECORDING_BASE}/start`, { sessionId, connectionId })
+}
+
+/** 停止录制 */
+export function stopRecording(sessionId: string, recordingId: string) {
+  return post<void>(`${RECORDING_BASE}/stop`, { sessionId, recordingId })
+}
+
+/** 查询连接的录制列表 */
+export function listRecordings(connectionId: string) {
+  return get<TerminalRecording[]>(`${RECORDING_BASE}/list`, { connectionId })
+}
+
+/** 获取录制回放数据 */
+export function getRecordingPlayback(recordingId: string) {
+  return get<TerminalRecording>(`${RECORDING_BASE}/playback/${recordingId}`)
+}

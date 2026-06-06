@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "WaLiSSH",
-  "version": "0.1.0",
-  "identifier": "cn.bugstack.ai",
+  "productName": "StackSSH",
+  "version": "1.0.0",
+  "identifier": "cn.stackssh.client",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "WaLiSSH",
+        "title": "StackSSH",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
@@ -35,6 +35,13 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true,
+        "installMode": "currentUser"
+      }
+    }
   }
 }
