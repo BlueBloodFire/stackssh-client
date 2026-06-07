@@ -42,6 +42,8 @@
         "displayLanguageSelector": true,
         "installMode": "currentUser"
       }
-    }
+    },
+    "macOS": {}
+
   }
 }
