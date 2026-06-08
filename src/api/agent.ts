@@ -1,7 +1,7 @@
 /**
  * 智能体 API
  */
-import { get, post, getBaseUrl } from './request'
+import { get, post, getBaseUrl, getRequestBaseUrl } from './request'
 
 export interface AiAgentConfigDTO {
   agentId: string
@@ -104,8 +104,7 @@ export function reactChatStream(
   onError: (err: string) => void,
   terminalSessionId?: string | null,
 ): () => void {
-  const baseUrl = getBaseUrl()
-  const url = `${baseUrl}/api/v1/chat_stream`
+  const url = `${getRequestBaseUrl()}/api/v1/chat_stream`
 
   const controller = new AbortController()
 

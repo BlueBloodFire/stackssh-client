@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useFileExplorerStore, formatFileSize } from '../stores/fileExplorerStore'
 import { uploadFile, createDirectory } from '../api/sshFile'
-import { getBaseUrl } from '../api/request'
+import { getRequestBaseUrl } from '../api/request'
 import { useConnectionStore } from '../stores/connectionStore'
 
 interface LocalFileNode {
@@ -218,7 +218,7 @@ export function SFTPWorkspace() {
           abortControllerRef.current = new AbortController()
 
           try {
-            const url = `${getBaseUrl()}/api/v1/ssh/file/download?connectionId=${encodeURIComponent(remoteNode.connectionId)}&path=${encodeURIComponent(remoteNode.path)}`
+            const url = `${getRequestBaseUrl()}/api/v1/ssh/file/download?connectionId=${encodeURIComponent(remoteNode.connectionId)}&path=${encodeURIComponent(remoteNode.path)}`
             const response = await fetch(url, { signal: abortControllerRef.current.signal })
             if (!response.ok) throw new Error('下载请求失败')
 

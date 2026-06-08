@@ -479,12 +479,13 @@ export function TerminalPanel({
         syncTabs(connId)
       }
     } else {
-      // 连接断开：清理所有 tab
+      // 连接断开：清理所有 tab，并通知 MainView 清空 activeTerminalSessionId
       const existingTabs = globalTerminalTabs.get(connId) ?? []
       existingTabs.forEach((t) => destroyTab(t.tabId))
       globalTerminalTabs.delete(connId)
       globalActiveTabId.delete(connId)
       syncTabs(connId)
+      onTerminalSessionChange?.(null)
     }
   }, [currentConn?.status])
 

@@ -334,10 +334,10 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
   const inputPlaceholder = () => {
     if (sendOnEnter) {
       return isMac
-        ? '向 WaLiSSH 提问...（Enter 发送 · Command + Enter 换行）'
-        : '向 WaLiSSH 提问...（Enter 发送 · Ctrl + Enter 换行）'
+        ? '向 StackSSH 提问...（Enter 发送 · Command + Enter 换行）'
+        : '向 StackSSH 提问...（Enter 发送 · Ctrl + Enter 换行）'
     }
-    return `向 WaLiSSH 提问...（${currentKeyLabel} 发送 · Enter 换行）`
+    return `向 StackSSH 提问...（${currentKeyLabel} 发送 · Enter 换行）`
   }
 
   useEffect(() => {
@@ -608,6 +608,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     let fullContent = ''
     const steps: ReActStep[] = []
 
+    console.log('[Diag] 发送聊天 sessionId=' + sessionId + ' terminalSessionId=' + (activeTerminalSessionId || 'null'))
     abortRef.current = agentApi.reactChatStream(
       currentAgentId,
       'default',

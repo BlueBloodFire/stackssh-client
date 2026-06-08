@@ -127,12 +127,14 @@ export const useSshAgentStore = create<SshAgentStore>((set, get) => ({
 
   // ===== Actions =====
   bindTerminal: async (chatSessionId, terminalSessionId, connectionInfo) => {
+    console.log('[Diag] bindTerminal chatSessionId=' + chatSessionId + ' terminalSessionId=' + terminalSessionId)
     set({ isBinding: true, bindingError: null })
     try {
       const res = await sshAgentApi.bindTerminal({
         chatSessionId,
         terminalSessionId,
       })
+      console.log('[Diag] bindTerminal 响应 code=' + res.code + ' bound=' + res.data?.bound)
 
       if (res.code === '0000' && res.data?.bound) {
         const binding: SshAgentBinding = {

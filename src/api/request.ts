@@ -32,6 +32,11 @@ export function getBaseUrl(): string {
   return baseUrl || DEFAULT_SERVER_URL
 }
 
+/** 获取请求用基础地址（dev 模式下可能为空字符串，表示走 Vite proxy） */
+export function getRequestBaseUrl(): string {
+  return baseUrl
+}
+
 /**
  * 设置服务端地址（持久化到 localStorage）
  *
