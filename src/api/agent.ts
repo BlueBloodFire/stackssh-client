@@ -1,7 +1,7 @@
 /**
  * 智能体 API
  */
-import { get, post, getBaseUrl, getRequestBaseUrl } from './request'
+import { get, post, getRequestBaseUrl } from './request'
 
 export interface AiAgentConfigDTO {
   agentId: string
