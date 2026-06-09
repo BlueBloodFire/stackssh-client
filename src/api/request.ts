@@ -25,7 +25,7 @@ const DEFAULT_SERVER_URL = 'http://124.220.1.39:8091'
  */
 let baseUrl: string = import.meta.env.DEV
   ? ''
-  : (localStorage.getItem('walissh_server_url') || DEFAULT_SERVER_URL)
+  : (localStorage.getItem('stackssh_server_url') || DEFAULT_SERVER_URL)
 
 /** 获取当前服务端地址（显示用，空字符串时返回默认值） */
 export function getBaseUrl(): string {
@@ -55,9 +55,9 @@ export function setBaseUrl(url: string): void {
     baseUrl = trimmed || DEFAULT_SERVER_URL
   }
   if (trimmed && trimmed !== DEFAULT_SERVER_URL) {
-    localStorage.setItem('walissh_server_url', trimmed)
+    localStorage.setItem('stackssh_server_url', trimmed)
   } else {
-    localStorage.removeItem('walissh_server_url')
+    localStorage.removeItem('stackssh_server_url')
   }
 }
 

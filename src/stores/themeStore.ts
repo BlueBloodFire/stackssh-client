@@ -113,7 +113,7 @@ export const themes: Record<ThemeName, ThemeConfig> = {
   },
 }
 
-const THEME_STORAGE_KEY = 'walissh_theme'
+const THEME_STORAGE_KEY = 'stackssh_theme'
 
 /** 从 localStorage 读取已保存的主题，默认 dark */
 function getInitialTheme(): ThemeName {
