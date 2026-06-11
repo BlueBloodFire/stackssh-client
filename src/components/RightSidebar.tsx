@@ -609,6 +609,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
     const steps: ReActStep[] = []
 
     console.log('[Diag] 发送聊天 sessionId=' + sessionId + ' terminalSessionId=' + (activeTerminalSessionId || 'null'))
+    const ragConnectionId = activeBinding ? activeBinding.connectionId : currentConnectionId
     abortRef.current = agentApi.reactChatStream(
       currentAgentId,
       'default',
@@ -636,7 +637,8 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
         abortRef.current = null
         setLoading(false)
       },
-      activeTerminalSessionId || undefined
+      activeTerminalSessionId || undefined,
+      ragConnectionId || undefined,
     )
   }
 

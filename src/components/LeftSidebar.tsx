@@ -9,6 +9,7 @@ import { getFileContent, createFile, createDirectory, renameFile, deleteFile, do
 import { useAgentStore } from '../stores/agentStore'
 import { getToolsConfig, updateToolsConfig } from '../api/agent'
 import type { McpConfigDTO, SkillsConfigDTO } from '../api/agent'
+import { KnowledgeBase } from './KnowledgeBase'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
 
@@ -1403,6 +1404,8 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
             ) : (
               <div className="text-center py-10"><p className="text-xs" style={{ color: colors.textDim }}>加载失败</p></div>
             )}
+            {/* ── 知识库 (RAG) ── */}
+            <KnowledgeBase connectionId={currentConnectionId} agentId={currentAgentId} />
           </div>
         )}
       </div>

@@ -103,6 +103,7 @@ export function reactChatStream(
   onDone: (finalContent: string) => void,
   onError: (err: string) => void,
   terminalSessionId?: string | null,
+  connectionId?: string | null,
 ): () => void {
   const url = `${getRequestBaseUrl()}/api/v1/chat_stream`
 
@@ -116,7 +117,7 @@ export function reactChatStream(
   fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ agentId, userId, sessionId, message, terminalSessionId }),
+    body: JSON.stringify({ agentId, userId, sessionId, message, terminalSessionId, connectionId }),
     signal: controller.signal,
   })
     .then((res) => {
