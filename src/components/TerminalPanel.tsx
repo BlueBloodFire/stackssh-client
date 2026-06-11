@@ -8,10 +8,12 @@ import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
 import {
-  openTerminal, writeInput, readOutput, resizeTerminal, closeTerminal,
+  openTerminal, resizeTerminal, closeTerminal,
   checkCommand, startRecording, stopRecording, listRecordings,
   type TerminalRecording,
 } from '../api/terminal'
+import { getWsBaseUrl } from '../api/request'
+import { getToken } from '../stores/authStore'
 import { ConnectionStatus } from '../types'
 import { COMMAND_CATEGORIES, type CommandCategory, type CommandItem } from './CommandData/commandData'
 import { TerminalPlayback } from './TerminalPlayback'
@@ -35,7 +37,7 @@ interface ConnectionTerminalState {
   searchAddon: SearchAddon
   container: HTMLDivElement
   session: TerminalSession | null
-  pollTimer: ReturnType<typeof setInterval> | null
+  ws: WebSocket | null
   onDataDisposable: { dispose(): void } | null
   disconnected: boolean
   connecting: boolean
@@ -75,9 +77,7 @@ const globalActiveTabId = new Map<string, string>()
 /** connectionId -> 命令历史 */
 const globalCommandHistory = new Map<string, string[]>()
 
-const POLL_INTERVAL = 50
 const DISCONNECT_MARKER = '[连接已断开]'
-const POLL_ERROR_THRESHOLD = 3
 
 let tabCounter = 0
 function nextTabLabel() {
@@ -135,11 +135,14 @@ export function TerminalPanel({
     setHistoryList([...(globalCommandHistory.get(connectionId) ?? [])])
   }, [])
 
-  // ---- 停止轮询 ----
-  const stopPolling = useCallback((state: ConnectionTerminalState) => {
-    if (state.pollTimer) {
-      clearInterval(state.pollTimer)
-      state.pollTimer = null
+  // ---- 关闭 WebSocket ----
+  const closeWebSocket = useCallback((state: ConnectionTerminalState) => {
+    if (state.ws) {
+      state.ws.onclose = null
+      state.ws.onerror = null
+      state.ws.onmessage = null
+      try { state.ws.close() } catch { /* ignore */ }
+      state.ws = null
     }
   }, [])
 
@@ -147,52 +150,43 @@ export function TerminalPanel({
   const markDisconnected = useCallback(async (state: ConnectionTerminalState, reason: string) => {
     if (state.disconnected) return
     state.disconnected = true
-    stopPolling(state)
+    closeWebSocket(state)
     const conn = connections.find((c) => c.id === state.session?.connectionId)
     if (conn?.status === ConnectionStatus.CONNECTED) {
       try { await disconnect(conn.id) } catch { /* ignore */ }
     }
     state.terminal.writeln(`\x1b[33m\r\n*** ${reason} ***\x1b[0m`)
-  }, [stopPolling, connections, disconnect])
+  }, [closeWebSocket, connections, disconnect])
 
-  // ---- 启动轮询 ----
-  const startPolling = useCallback((state: ConnectionTerminalState) => {
-    stopPolling(state)
-    const sessionId = state.session!.sessionId
-    let errorCount = 0
-
-    state.pollTimer = setInterval(async () => {
-      try {
-        const res = await readOutput(sessionId)
-        if (res.code === '0000') {
-          errorCount = 0
-          if (res.data?.output) {
-            if (res.data.output.includes(DISCONNECT_MARKER)) {
-              markDisconnected(state, '连接已断开')
-              return
-            }
-            state.terminal.write(res.data.output)
-          }
-          return
-        }
-        if (res.code === 'ILLEGAL_PARAMETER' && res.info?.includes('不存在')) {
-          markDisconnected(state, '会话已失效')
-          return
-        }
-        errorCount++
-        if (errorCount >= POLL_ERROR_THRESHOLD) markDisconnected(state, '连接异常')
-      } catch {
-        errorCount++
-        if (errorCount >= POLL_ERROR_THRESHOLD) markDisconnected(state, '网络异常')
+  // ---- 建立 WebSocket 连接（替换轮询）----
+  const startWebSocket = useCallback((state: ConnectionTerminalState, sessionId: string) => {
+    closeWebSocket(state)
+    const token = getToken() ?? ''
+    const wsUrl = `${getWsBaseUrl()}/ws/terminal?sessionId=${sessionId}&token=${token}`
+    const ws = new WebSocket(wsUrl)
+    ws.onmessage = (event) => {
+      if (state.disconnected) return
+      const data = event.data as string
+      if (data.includes(DISCONNECT_MARKER)) {
+        markDisconnected(state, '连接已断开')
+        return
       }
-    }, POLL_INTERVAL)
-  }, [stopPolling, markDisconnected])
+      state.terminal.write(data)
+    }
+    ws.onclose = () => {
+      if (!state.disconnected) markDisconnected(state, '连接已断开')
+    }
+    ws.onerror = () => {
+      if (!state.disconnected) markDisconnected(state, '连接异常')
+    }
+    state.ws = ws
+  }, [closeWebSocket, markDisconnected])
 
   // ---- 销毁单个 tab 的终端 ----
   const destroyTab = useCallback((tabId: string) => {
     const state = terminalStates.current.get(tabId)
     if (!state) return
-    stopPolling(state)
+    closeWebSocket(state)
     if (state.inputFlushTimer) clearTimeout(state.inputFlushTimer)
     if (state.session) closeTerminal(state.session.sessionId).catch(() => {})
     state.onDataDisposable?.dispose()
@@ -200,7 +194,7 @@ export function TerminalPanel({
     state.terminal.dispose()
     if (state.container.parentNode) state.container.remove()
     terminalStates.current.delete(tabId)
-  }, [stopPolling])
+  }, [closeWebSocket])
 
   // ---- 创建并打开终端会话 ----
   const openTerminalSession = useCallback(async (tabId: string, connectionId: string) => {
@@ -292,7 +286,7 @@ export function TerminalPanel({
       searchAddon,
       container,
       session: null,
-      pollTimer: null,
+      ws: null,
       onDataDisposable: null,
       disconnected: false,
       connecting: true,
@@ -378,15 +372,15 @@ export function TerminalPanel({
           state.currentLineBuffer += data
         }
 
-        // ---- 正常发送 ----
+        // ---- 正常发送（合批后通过 WebSocket 发出）----
         if (!state.inputBuffer) {
           state.inputBuffer = []
           state.inputFlushTimer = setTimeout(() => {
-            if (state.inputBuffer && state.session && !state.disconnected) {
+            if (state.inputBuffer && !state.disconnected) {
               const input = state.inputBuffer.join('')
-              writeInput({ sessionId: state.session.sessionId, input }).catch(() => {
-                term.writeln('\r\n\x1b[31m输入发送失败\x1b[0m')
-              })
+              if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                try { state.ws.send(input) } catch { /* ignore */ }
+              }
             }
             state.inputBuffer = null
             state.inputFlushTimer = null
@@ -395,13 +389,13 @@ export function TerminalPanel({
         state.inputBuffer.push(data)
       })
 
-      startPolling(state)
+      startWebSocket(state, sessionId)
     } catch (err: any) {
       term.writeln(`\x1b[31m连接错误: ${err.message || '未知错误'}\x1b[0m`)
     } finally {
       state.connecting = false
     }
-  }, [colors, destroyTab, startPolling, onTerminalSessionChange])
+  }, [colors, destroyTab, startWebSocket, onTerminalSessionChange])
 
   // ---- 新建 tab ----
   const createNewTab = useCallback((connectionId: string) => {
@@ -523,10 +517,10 @@ export function TerminalPanel({
     if (!state?.session) return
     if (!state.container.parentNode) {
       wrapperRef.current.appendChild(state.container)
-      startPolling(state)
+      if (state.session) startWebSocket(state, state.session.sessionId)
     }
     requestAnimationFrame(() => state.terminal.focus())
-  }, [currentConnectionId, startPolling])
+  }, [currentConnectionId, startWebSocket])
 
   // ---- 卸载清理 ----
   useEffect(() => {
@@ -535,12 +529,12 @@ export function TerminalPanel({
         terminalStates.current.forEach((_, tabId) => destroyTab(tabId))
       } else {
         terminalStates.current.forEach((state) => {
-          stopPolling(state)
+          closeWebSocket(state)
           if (state.container.parentNode) state.container.parentNode.removeChild(state.container)
         })
       }
     }
-  }, [destroyTab, stopPolling, keepSessionOnUnmount])
+  }, [destroyTab, closeWebSocket, keepSessionOnUnmount])
 
   // ---- 搜索 ----
   const handleSearch = useCallback((dir: 'next' | 'prev') => {
@@ -621,15 +615,16 @@ export function TerminalPanel({
     const state = terminalStates.current.get(tabId)
     if (!state) return
     state.pendingDangerConfirm = false
-    if (confirmed && state.pendingEnter && state.session) {
+    if (confirmed && state.pendingEnter) {
       const enter = state.pendingEnter
       state.pendingEnter = null
-      writeInput({ sessionId: state.session.sessionId, input: enter }).catch(() => {})
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        try { state.ws.send(enter) } catch { /* ignore */ }
+      }
     } else {
       state.pendingEnter = null
-      // 发 Ctrl+C 取消
-      if (state.session) {
-        writeInput({ sessionId: state.session.sessionId, input: '\x03' }).catch(() => {})
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        try { state.ws.send('\x03') } catch { /* ignore */ }
       }
     }
   }, [dangerDialog])
@@ -906,8 +901,8 @@ export function TerminalPanel({
           onExecute={(cmd) => {
             if (!currentActiveTabId) return
             const state = terminalStates.current.get(currentActiveTabId)
-            if (state?.session) {
-              writeInput({ sessionId: state.session.sessionId, input: cmd + '\r' }).catch(() => {})
+            if (state?.ws && state.ws.readyState === WebSocket.OPEN) {
+              try { state.ws.send(cmd + '\r') } catch { /* ignore */ }
             }
             state?.terminal.focus()
           }}
