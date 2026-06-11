@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+﻿import { useRef, useEffect, useState } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useAgentStore } from '../stores/agentStore'
 import { useConnectionStore } from '../stores/connectionStore'
@@ -8,6 +8,7 @@ import * as agentApi from '../api/agent'
 import type { AgentMessage } from '../types'
 import type { ReActStep } from '../api/agent'
 import { ConnectionStatus } from '../types'
+import { MessageMarkdown } from './MessageMarkdown'
 
 // ===== ReAct 步骤渲染 =====
 const STEP_LABELS: Record<string, string> = {
@@ -141,24 +142,6 @@ function MessageBubble({ message }: { message: AgentMessage }) {
   const { colors } = useThemeStore()
   const isUser = message.role === 'user'
 
-  const formatMarkdown = (text: string): string => {
-    let html = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-    html = html.replace(/^>\s?(.*)(?:\n>\s?(.*))*/gm, (match) => {
-      const content = match.replace(/^>\s?/gm, '')
-      return `<blockquote style="border-left: 3px solid ${colors.accent}; margin: 4px 0; padding-left: 8px; color: ${colors.textDim}; background: ${colors.bgSecondary}80; padding-top: 4px; padding-bottom: 4px; border-radius: 0 4px 4px 0;">${content}</blockquote>`
-    })
-    html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_match, _lang, code) => {
-      return `<pre style="margin:6px 0;padding:10px;border-radius:6px;overflow-x:auto;font-size:11px;font-family:'JetBrains Mono',monospace;background:${colors.bgSecondary};color:${colors.text};border:1px solid ${colors.border}"><code>${code.trim()}</code></pre>`
-    })
-    html = html.replace(/`([^`]+)`/g, `<code style="padding:1px 5px;border-radius:3px;font-size:11px;font-family:monospace;background:${colors.bgHover};color:${colors.accent};border:1px solid ${colors.border}">$1</code>`)
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    html = html.replace(/\n/g, '<br/>')
-    return html
-  }
-
   const timeStr = formatTime(message.timestamp)
   const plainText = message.content || ''
   const timeBar = (
@@ -169,27 +152,22 @@ function MessageBubble({ message }: { message: AgentMessage }) {
     </div>
   )
 
-  if (message.steps && message.steps.length > 0) {
+  // ===== 用户消息：右对齐浅色气泡 =====
+  if (isUser) {
     return (
-      <div className="px-4 py-1.5 flex justify-start">
-        <div className="flex flex-col items-start">
-          <div className="max-w-[88%] rounded-lg border" style={{
-            backgroundColor: colors.bgTertiary,
-            borderColor: colors.border,
-            borderRadius: '12px 12px 12px 2px',
-          }}>
-            <div className="px-3 pt-2 pb-2">
-              {message.steps.map((step, i) => (
-                <ReActStepView key={i} step={step} colors={colors} />
-              ))}
-              {message.content && (
-                <div className="mt-1 pt-1" style={{ borderTop: `1px solid ${colors.border}` }}>
-                  <div className="text-[12px] leading-relaxed" style={{ color: colors.text, whiteSpace: 'pre-wrap' }}
-                    dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
-                  />
-                </div>
-              )}
-            </div>
+      <div className="px-4 py-1.5 flex justify-end">
+        <div className="flex flex-col items-end max-w-[88%]">
+          <div
+            className="px-3.5 py-2 text-[13px] leading-relaxed rounded-2xl"
+            style={{
+              backgroundColor: colors.accentSoft,
+              color: colors.text,
+              border: `1px solid ${colors.accent}30`,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {message.content}
           </div>
           {timeBar}
         </div>
@@ -197,20 +175,21 @@ function MessageBubble({ message }: { message: AgentMessage }) {
     )
   }
 
+  // ===== AI 消息（含 ReAct 步骤）：Codex 风格，无气泡全宽渲染 =====
   return (
-    <div className={`px-4 py-1.5 ${isUser ? 'flex justify-end' : 'flex justify-start'}`}>
-      <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+    <div className="px-4 py-2">
+      {message.steps && message.steps.length > 0 && (
         <div
-          className="max-w-[88%] px-3.5 py-2.5 text-[13px] leading-relaxed"
-          style={{
-            backgroundColor: isUser ? colors.accent : colors.bgTertiary,
-            color: isUser ? '#fff' : colors.text,
-            borderRadius: isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-          }}
-          dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
-        />
-        {timeBar}
-      </div>
+          className="mb-2 rounded-lg border px-3 py-2"
+          style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
+        >
+          {message.steps.map((step, i) => (
+            <ReActStepView key={i} step={step} colors={colors} />
+          ))}
+        </div>
+      )}
+      {message.content && <MessageMarkdown content={message.content} colors={colors} />}
+      {timeBar}
     </div>
   )
 }
@@ -774,7 +753,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
       <div className="flex-1 overflow-y-auto min-h-0">
         {!currentSession ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 px-6">
-            <img src="/logo.png" alt="StackSSH" className="w-14 h-14 mb-2 opacity-60 rounded" />
+            <img src="/logo.png" alt="StackSSH" className="w-14 h-14 mb-2 rounded-xl" />
             <h3 className="text-base font-medium" style={{ color: colors.text }}>开始对话</h3>
             <p className="text-xs text-center max-w-xs leading-relaxed" style={{ color: colors.textSecondary }}>
               连接 SSH 后，可以向我询问服务器状态、执行命令、排查问题、管理文件。
@@ -782,7 +761,7 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
           </div>
         ) : currentSession.messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
-            <img src="/logo.png" alt="StackSSH" className="w-10 h-10 opacity-50 rounded" />
+            <img src="/logo.png" alt="StackSSH" className="w-10 h-10 opacity-80 rounded-lg" />
             <div className="text-center">
               <p className="text-sm font-medium mb-1" style={{ color: colors.text }}>StackSSH AI</p>
               <p className="text-xs" style={{ color: colors.textDim }}>执行命令 · 排查问题 · 管理服务器</p>
@@ -1149,13 +1128,13 @@ export function RightSidebar({ width = 400, activeTerminalSessionId }: RightSide
               </button>
               {showAttachmentMenu && (
                 <div className="absolute bottom-full right-0 mb-1 w-32 rounded-lg border shadow-lg py-1 z-50" style={{ backgroundColor: colors.bgPrimary, borderColor: colors.border }}>
-                  <button onClick={handleAddCurrentFile} disabled={!activeTabKey} className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" style={{ color: colors.text }}>
+                  <button onClick={handleAddCurrentFile} disabled={!activeTabKey} className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-black/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" style={{ color: colors.text }}>
                     添加当前文件
                   </button>
-                  <button onClick={handleAddCurrentFolder} disabled={!activeConnectionId} className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" style={{ color: colors.text }}>
+                  <button onClick={handleAddCurrentFolder} disabled={!activeConnectionId} className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-black/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" style={{ color: colors.text }}>
                     添加当前目录
                   </button>
-                  <button onClick={handleAddSelectedText} className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-white/5 transition-colors" style={{ color: colors.text }}>
+                  <button onClick={handleAddSelectedText} className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-black/5 transition-colors" style={{ color: colors.text }}>
                     添加选中文本
                   </button>
                 </div>

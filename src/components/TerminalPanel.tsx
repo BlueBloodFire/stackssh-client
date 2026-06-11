@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react'
+﻿import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -8,15 +8,12 @@ import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
 import {
-  openTerminal, resizeTerminal, closeTerminal,
-  checkCommand, startRecording, stopRecording, listRecordings,
-  type TerminalRecording,
+  openTerminal, resizeTerminal, closeTerminal, checkCommand,
 } from '../api/terminal'
 import { getWsBaseUrl } from '../api/request'
 import { getToken } from '../stores/authStore'
 import { ConnectionStatus } from '../types'
 import { COMMAND_CATEGORIES, type CommandCategory, type CommandItem } from './CommandData/commandData'
-import { TerminalPlayback } from './TerminalPlayback'
 
 // ===== 类型定义 =====
 
@@ -114,13 +111,6 @@ export function TerminalPanel({
   const [dangerDialog, setDangerDialog] = useState<{ visible: boolean; command: string; warning: string; tabId: string }>({
     visible: false, command: '', warning: '', tabId: ''
   })
-  // 录制
-  const [isRecording, setIsRecording] = useState(false)
-  const [recordingId, setRecordingId] = useState<string | null>(null)
-  const [showPlayback, setShowPlayback] = useState(false)
-  const [recordings, setRecordings] = useState<TerminalRecording[]>([])
-  const [showRecordingList, setShowRecordingList] = useState(false)
-  const [playbackRecordingId, setPlaybackRecordingId] = useState<string | null>(null)
 
   const currentConn = connections.find((c) => c.id === currentConnectionId)
   const isConnected = currentConn?.status === ConnectionStatus.CONNECTED
@@ -555,59 +545,6 @@ export function TerminalPanel({
     if (searchQuery) handleSearch('next')
   }, [searchQuery])
 
-  // ---- 快照导出 ----
-  const handleSnapshot = useCallback(() => {
-    if (!currentConnectionId) return
-    const activeId = globalActiveTabId.get(currentConnectionId)
-    if (!activeId) return
-    const state = terminalStates.current.get(activeId)
-    if (!state) return
-    const lines: string[] = []
-    const buffer = state.terminal.buffer.active
-    for (let i = 0; i < buffer.length; i++) {
-      const line = buffer.getLine(i)
-      if (line) lines.push(line.translateToString(true))
-    }
-    const content = lines.join('\n')
-    const blob = new Blob([content], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `terminal-snapshot-${Date.now()}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [currentConnectionId])
-
-  // ---- 录制控制 ----
-  const handleToggleRecording = useCallback(async () => {
-    if (!currentConnectionId) return
-    const activeId = globalActiveTabId.get(currentConnectionId)
-    if (!activeId) return
-    const state = terminalStates.current.get(activeId)
-    if (!state?.session) return
-
-    if (!isRecording) {
-      const res = await startRecording(state.session.sessionId, currentConnectionId)
-      if (res.code === '0000' && res.data) {
-        setRecordingId(res.data)
-        setIsRecording(true)
-      }
-    } else if (recordingId) {
-      await stopRecording(state.session.sessionId, recordingId)
-      setIsRecording(false)
-      setRecordingId(null)
-    }
-  }, [currentConnectionId, isRecording, recordingId])
-
-  const handleShowRecordings = useCallback(async () => {
-    if (!currentConnectionId) return
-    const res = await listRecordings(currentConnectionId)
-    if (res.code === '0000' && res.data) {
-      setRecordings(res.data)
-      setShowRecordingList(true)
-    }
-  }, [currentConnectionId])
-
   // ---- 危险命令确认 ----
   const handleDangerConfirm = useCallback((confirmed: boolean) => {
     const { tabId } = dangerDialog
@@ -736,27 +673,6 @@ export function TerminalPanel({
                 </svg>
               </button>
 
-              {/* 快照 */}
-              <button onClick={handleSnapshot} className="p-1.5 rounded hover:bg-white/10 transition-colors" style={{ color: colors.textDim }} title="导出终端快照(.txt)">
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-              </button>
-
-              {/* 录制 */}
-              <button onClick={handleToggleRecording} className="p-1.5 rounded hover:bg-white/10 transition-colors" style={{ color: isRecording ? colors.red : colors.textDim }} title={isRecording ? '停止录制' : '开始录制'}>
-                {isRecording
-                  ? <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                  : <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>}
-              </button>
-
-              {/* 录制列表 */}
-              <button onClick={handleShowRecordings} className="p-1.5 rounded hover:bg-white/10 transition-colors" style={{ color: colors.textDim }} title="查看录制列表">
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-                </svg>
-              </button>
-
               {/* 清屏 */}
               <button onClick={() => currentState?.terminal.clear()} className="p-1.5 rounded hover:bg-white/10 transition-colors" style={{ color: colors.textDim }} title="清屏">
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -832,35 +748,60 @@ export function TerminalPanel({
         />
       )}
 
-      {/* ===== 终端容器 ===== */}
-      <div className="flex-1 overflow-hidden" style={{ position: 'relative' }}>
-        <div ref={wrapperRef} className="absolute inset-0" />
+      {/* ===== 终端容器 + 右侧命令历史 ===== */}
+      <div className="flex-1 flex min-h-0">
+        <div className="flex-1 overflow-hidden min-w-0" style={{ position: 'relative' }}>
+          <div ref={wrapperRef} className="absolute inset-0" />
 
-        {/* 非 CONNECTED 状态遮罩 */}
-        {!isConnected && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center" style={{ backgroundColor: colors.bgPrimary }}>
-            {currentConn.status === ConnectionStatus.CONNECTING && (
-              <div className="text-center">
-                <div className="animate-spin text-4xl mb-4" style={{ color: colors.accent }}>⚙️</div>
-                <p style={{ color: colors.text }}>正在连接 {currentConn.name}...</p>
-              </div>
-            )}
-            {currentConn.status === ConnectionStatus.FAILED && (
-              <div className="text-center">
-                <div className="text-6xl mb-4">❌</div>
-                <h2 className="text-lg font-medium mb-2" style={{ color: colors.red }}>连接失败</h2>
-                <button onClick={() => connect(currentConn.id)} className="px-4 py-2 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>重试连接</button>
-              </div>
-            )}
-            {currentConn.status === ConnectionStatus.DISCONNECTED && (
-              <div className="text-center">
-                <div className="text-6xl mb-4">🔌</div>
-                <h2 className="text-lg font-medium mb-2" style={{ color: colors.text }}>{currentConn.name}</h2>
-                <p className="text-sm mb-2" style={{ color: colors.textDim }}>{currentConn.username}@{currentConn.host}:{currentConn.port}</p>
-                <button onClick={() => connect(currentConn.id)} className="px-4 py-2 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>连接服务器</button>
-              </div>
-            )}
-          </div>
+          {/* 非 CONNECTED 状态遮罩 */}
+          {!isConnected && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center" style={{ backgroundColor: colors.bgPrimary }}>
+              {currentConn.status === ConnectionStatus.CONNECTING && (
+                <div className="text-center">
+                  <div className="animate-spin text-4xl mb-4" style={{ color: colors.accent }}>⚙️</div>
+                  <p style={{ color: colors.text }}>正在连接 {currentConn.name}...</p>
+                </div>
+              )}
+              {currentConn.status === ConnectionStatus.FAILED && (
+                <div className="text-center">
+                  <div className="text-6xl mb-4">❌</div>
+                  <h2 className="text-lg font-medium mb-2" style={{ color: colors.red }}>连接失败</h2>
+                  <button onClick={() => connect(currentConn.id)} className="px-4 py-2 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>重试连接</button>
+                </div>
+              )}
+              {currentConn.status === ConnectionStatus.DISCONNECTED && (
+                <div className="text-center">
+                  <div className="text-6xl mb-4">🔌</div>
+                  <h2 className="text-lg font-medium mb-2" style={{ color: colors.text }}>{currentConn.name}</h2>
+                  <p className="text-sm mb-2" style={{ color: colors.textDim }}>{currentConn.username}@{currentConn.host}:{currentConn.port}</p>
+                  <button onClick={() => connect(currentConn.id)} className="px-4 py-2 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>连接服务器</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 命令历史面板（右侧固定） */}
+        {showHistory && (
+          <CommandHistoryPanel
+            history={historyList}
+            colors={colors}
+            onClose={() => setShowHistory(false)}
+            onInsert={(cmd) => {
+              if (!currentActiveTabId) return
+              const state = terminalStates.current.get(currentActiveTabId)
+              state?.terminal.paste(cmd)
+              state?.terminal.focus()
+            }}
+            onExecute={(cmd) => {
+              if (!currentActiveTabId) return
+              const state = terminalStates.current.get(currentActiveTabId)
+              if (state?.ws && state.ws.readyState === WebSocket.OPEN) {
+                try { state.ws.send(cmd + '\r') } catch { /* ignore */ }
+              }
+              state?.terminal.focus()
+            }}
+          />
         )}
       </div>
 
@@ -884,29 +825,6 @@ export function TerminalPanel({
             复制
           </button>
         </div>
-      )}
-
-      {/* ===== 命令历史面板 ===== */}
-      {showHistory && (
-        <CommandHistoryPanel
-          history={historyList}
-          colors={colors}
-          onClose={() => setShowHistory(false)}
-          onInsert={(cmd) => {
-            if (!currentActiveTabId) return
-            const state = terminalStates.current.get(currentActiveTabId)
-            state?.terminal.paste(cmd)
-            state?.terminal.focus()
-          }}
-          onExecute={(cmd) => {
-            if (!currentActiveTabId) return
-            const state = terminalStates.current.get(currentActiveTabId)
-            if (state?.ws && state.ws.readyState === WebSocket.OPEN) {
-              try { state.ws.send(cmd + '\r') } catch { /* ignore */ }
-            }
-            state?.terminal.focus()
-          }}
-        />
       )}
 
       {/* ===== 危险命令确认弹窗 ===== */}
@@ -933,57 +851,6 @@ export function TerminalPanel({
         </div>
       )}
 
-      {/* ===== 录制列表弹窗 ===== */}
-      {showRecordingList && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
-          <div className="rounded-xl p-4 max-w-lg w-full mx-4 shadow-2xl border" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-sm" style={{ color: colors.text }}>终端录制列表</h3>
-              <button onClick={() => setShowRecordingList(false)} className="p-1 rounded hover:bg-white/10" style={{ color: colors.textDim }}>✕</button>
-            </div>
-            {recordings.length === 0
-              ? <p className="text-xs text-center py-4" style={{ color: colors.textDim }}>暂无录制</p>
-              : (
-                <div className="space-y-2 max-h-72 overflow-y-auto">
-                  {recordings.map((r) => (
-                    <div key={r.recordingId} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ backgroundColor: colors.bgPrimary }}>
-                      <div>
-                        <div className="text-xs font-mono" style={{ color: colors.text }}>{r.recordingId.slice(0, 12)}...</div>
-                        <div className="text-[10px]" style={{ color: colors.textDim }}>
-                          {r.startedAt ? new Date(r.startedAt).toLocaleString() : '—'}
-                          {r.durationMs ? ` · ${(r.durationMs / 1000).toFixed(1)}s` : ''}
-                          {' · '}{r.status === 0 ? '录制中' : r.status === 1 ? '已完成' : '已中断'}
-                        </div>
-                      </div>
-                      {r.status === 1 && (
-                        <button
-                          onClick={() => { setPlaybackRecordingId(r.recordingId); setShowPlayback(true); setShowRecordingList(false) }}
-                          className="px-2 py-1 rounded text-[11px]"
-                          style={{ backgroundColor: colors.accent, color: '#fff' }}
-                        >▶ 回放</button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-          </div>
-        </div>
-      )}
-
-      {/* ===== 终端回放 ===== */}
-      {showPlayback && playbackRecordingId && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80">
-          <div className="w-full h-full max-w-5xl max-h-[90vh] p-4 flex flex-col">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold" style={{ color: colors.text }}>终端回放</h3>
-              <button onClick={() => setShowPlayback(false)} className="px-3 py-1 rounded text-xs" style={{ backgroundColor: colors.bgSecondary, color: colors.text }}>关闭</button>
-            </div>
-            <div className="flex-1 min-h-0">
-              <TerminalPlayback recordingId={playbackRecordingId} colors={colors} />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1004,16 +871,16 @@ function CommandHistoryPanel({
   onExecute: (cmd: string) => void
 }) {
   return (
-    <div className="absolute right-0 top-9 bottom-0 w-72 border-l overflow-hidden flex flex-col z-20" style={{ backgroundColor: colors.bgPrimary, borderColor: colors.border }}>
+    <div className="w-72 flex-shrink-0 border-l overflow-hidden flex flex-col" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
       <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: colors.border }}>
         <span className="text-xs font-medium" style={{ color: colors.text }}>命令历史 ({history.length})</span>
-        <button onClick={onClose} className="p-1 rounded hover:bg-white/10" style={{ color: colors.textDim }}>✕</button>
+        <button onClick={onClose} className="p-1 rounded hover:bg-black/5" style={{ color: colors.textDim }}>✕</button>
       </div>
       <div className="flex-1 overflow-y-auto">
         {history.length === 0
           ? <p className="text-xs text-center py-4" style={{ color: colors.textDim }}>暂无命令历史</p>
           : [...history].reverse().map((cmd, idx) => (
-            <div key={idx} className="group flex items-center px-3 py-2 hover:bg-white/5 gap-2" style={{ borderBottom: `1px solid ${colors.border}20` }}>
+            <div key={idx} className="group flex items-center px-3 py-2 hover:bg-black/5 gap-2" style={{ borderBottom: `1px solid ${colors.border}20` }}>
               <span className="flex-1 text-[11px] font-mono truncate" style={{ color: colors.text }} title={cmd}>{cmd}</span>
               <button onClick={() => onInsert(cmd)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-[10px]" style={{ color: colors.accent }} title="插入">插</button>
               <button onClick={() => onExecute(cmd)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-[10px]" style={{ color: colors.green }} title="执行">▶</button>

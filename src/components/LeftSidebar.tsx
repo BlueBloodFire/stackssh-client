@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+﻿import { useEffect, useMemo, useState, useRef } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { ConnectionStatus } from '../types'
@@ -10,8 +10,9 @@ import { useAgentStore } from '../stores/agentStore'
 import { getToolsConfig, updateToolsConfig } from '../api/agent'
 import type { McpConfigDTO, SkillsConfigDTO } from '../api/agent'
 import { KnowledgeBase } from './KnowledgeBase'
+import { GitPanel } from './GitPanel'
 
-type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
+type TabId = 'servers' | 'files' | 'sftp' | 'git' | 'extensions'
 
 function statusColor(status: number, colors: any): string {
   switch (status) {
@@ -908,6 +909,7 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
     servers: 'SSH 服务器',
     files: '文件目录',
     sftp: 'SFTP 文件传输',
+    git: 'Git 分支管理',
     extensions: '扩展',
   }
 
@@ -1064,6 +1066,8 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
               </div>
             )}
           </div>
+        ) : activeTab === 'git' ? (
+          <GitPanel />
         ) : activeTab === 'sftp' ? (
           <div 
             className="h-full flex flex-col min-h-0 relative transition-colors"
@@ -1133,7 +1137,7 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
                     <div className="flex flex-col">
                       {currentPathByConnection[browsingConnection.id] && currentPathByConnection[browsingConnection.id] !== '/' && (
                         <div 
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 cursor-pointer rounded"
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-black/5 cursor-pointer rounded"
                           onClick={() => {
                             const current = currentPathByConnection[browsingConnection.id] || '/'
                             const parts = current.split('/').filter(Boolean)
@@ -1155,7 +1159,7 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
                             e.dataTransfer.setData('application/json', JSON.stringify({ ...node, connectionId: browsingConnection.id }))
                             e.dataTransfer.effectAllowed = 'copy'
                           }}
-                          className="flex items-center justify-between px-2 py-1.5 hover:bg-white/5 cursor-pointer rounded group"
+                          className="flex items-center justify-between px-2 py-1.5 hover:bg-black/5 cursor-pointer rounded group"
                           onClick={() => {
                             if (node.directory) {
                               setSelectedPath(browsingConnection.id, node.path)

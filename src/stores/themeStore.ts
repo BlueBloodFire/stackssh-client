@@ -53,17 +53,17 @@ export const themes: Record<ThemeName, ThemeConfig> = {
     label: '浅色',
     colors: {
       bgPrimary: '#ffffff',
-      bgSecondary: '#f3f4f6',
-      bgTertiary: '#e5e7eb',
+      bgSecondary: '#fafafa',
+      bgTertiary: '#f4f4f5',
       bgInput: '#ffffff',
-      bgHover: '#ebedef',
-      bgTitleBar: '#f0f0f0',
-      border: '#d1d5db',
-      text: '#111827',
-      textSecondary: '#4b5563',
-      textDim: '#9ca3af',
+      bgHover: '#f4f4f5',
+      bgTitleBar: '#f9f9f9',
+      border: '#e4e4e7',
+      text: '#18181b',
+      textSecondary: '#52525b',
+      textDim: '#a1a1aa',
       accent: '#2563eb',
-      accentSoft: 'rgba(37,99,235,0.10)',
+      accentSoft: 'rgba(37,99,235,0.08)',
       green: '#16a34a',
       red: '#dc2626',
       yellow: '#ca8a04',
@@ -115,7 +115,7 @@ export const themes: Record<ThemeName, ThemeConfig> = {
 
 const THEME_STORAGE_KEY = 'stackssh_theme'
 
-/** 从 localStorage 读取已保存的主题，默认 dark */
+/** 从 localStorage 读取已保存的主题，默认 light */
 function getInitialTheme(): ThemeName {
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY)
@@ -125,7 +125,7 @@ function getInitialTheme(): ThemeName {
   } catch {
     // localStorage 不可用时忽略
   }
-  return 'dark'
+  return 'light'
 }
 
 interface ThemeStore {

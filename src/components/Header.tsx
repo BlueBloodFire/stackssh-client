@@ -125,7 +125,7 @@ export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, term
           <span className="text-[11px]" style={{ color: colors.textDim }}>{username}</span>
           <button
             onClick={logout}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors hover:bg-white/5"
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors hover:bg-black/5"
             style={{ color: colors.textSecondary }}
             title="退出登录"
           >

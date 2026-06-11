@@ -1,4 +1,5 @@
 import { get, post, postFormData } from './request'
+import { getToken } from '../stores/authStore'
 
 const BASE = '/api/v1/ssh/file'
 
@@ -71,5 +72,7 @@ export function uploadFile(connectionId: string, path: string, file: File, signa
 }
 
 export function downloadFileUrl(connectionId: string, path: string) {
-  return `${BASE}/download?connectionId=${encodeURIComponent(connectionId)}&path=${encodeURIComponent(path)}`
+  // <a href> 直链无法携带 Authorization header，token 走 query 参数（服务端 JwtAuthFilter 支持）
+  const token = getToken() ?? ''
+  return `${BASE}/download?connectionId=${encodeURIComponent(connectionId)}&path=${encodeURIComponent(path)}&token=${encodeURIComponent(token)}`
 }

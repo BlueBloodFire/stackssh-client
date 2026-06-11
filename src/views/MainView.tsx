@@ -11,7 +11,7 @@ import { SSHConnectionModal } from '../components/SSHConnectionModal'
 import { useThemeStore } from '../stores/themeStore'
 import { useFileExplorerStore } from '../stores/fileExplorerStore'
 
-type TabId = 'servers' | 'files' | 'sftp' | 'extensions'
+type TabId = 'servers' | 'files' | 'sftp' | 'git' | 'extensions'
 
 /**
  * MainView V4 - 统一终端管理 + 多文件标签
@@ -211,8 +211,8 @@ export function MainView() {
 
         {/* 中间：根据左侧 Tab 切换工作区 */}
         <div className="flex-1 min-w-0 overflow-hidden relative workbench-container">
-          {/* SSH 服务器标签页 - 只显示终端 */}
-          {activeTab === 'servers' && (
+          {/* SSH 服务器 / Git 标签页 - 显示终端 */}
+          {(activeTab === 'servers' || activeTab === 'git') && (
             <div className="h-full min-w-0">
               {terminalVisible ? (
                 <TerminalPanel 
@@ -354,7 +354,7 @@ export function MainView() {
                           e.stopPropagation()
                           setDropdownOpen(!dropdownOpen)
                         }}
-                        className="h-7 px-2 rounded-md flex items-center gap-1 text-xs hover:bg-white/5 transition-colors"
+                        className="h-7 px-2 rounded-md flex items-center gap-1 text-xs hover:bg-black/5 transition-colors"
                         style={{ color: colors.textSecondary }}
                       >
                         <span className="font-mono text-[10px] bg-black/10 px-1 rounded">{openTabs.length}</span>
@@ -375,7 +375,7 @@ export function MainView() {
                           {openTabs.map((tab) => (
                             <button
                               key={`menu-${tab.key}`}
-                              className="w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-white/5 transition-colors"
+                              className="w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-black/5 transition-colors"
                               style={{ color: activeTabKey === tab.key ? colors.accent : colors.text }}
                               onClick={() => {
                                 setActiveFileTab(tab.key)
@@ -499,8 +499,8 @@ export function MainView() {
           <>
             {/* Chat 拖拽条 */}
             <div
-              className="w-1.5 h-full cursor-col-resize relative z-50 flex-shrink-0 bg-[#3c3c3c]/40"
-              style={{ backgroundColor: isResizingChat ? colors.accent : undefined }}
+              className="w-1.5 h-full cursor-col-resize relative z-50 flex-shrink-0"
+              style={{ backgroundColor: isResizingChat ? colors.accent : colors.border }}
               onMouseDown={handleChatResizeStart}
             >
               <div
@@ -531,7 +531,7 @@ export function MainView() {
           onClick={(e) => e.stopPropagation()}
         >
           <button
-            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 transition-colors"
             style={{ color: colors.text }}
             onClick={() => {
               closeTabsToLeft(contextMenu.tabKey)
@@ -541,7 +541,7 @@ export function MainView() {
             关闭左侧
           </button>
           <button
-            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 transition-colors"
             style={{ color: colors.text }}
             onClick={() => {
               closeTabsToRight(contextMenu.tabKey)
@@ -551,7 +551,7 @@ export function MainView() {
             关闭右侧
           </button>
           <button
-            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 transition-colors"
             style={{ color: colors.text }}
             onClick={() => {
               closeOtherTabs(contextMenu.tabKey)
@@ -562,7 +562,7 @@ export function MainView() {
           </button>
           <div style={{ height: 1, backgroundColor: colors.border, margin: '4px 0' }} />
           <button
-            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 transition-colors"
             style={{ color: colors.text }}
             onClick={() => {
               closeAllTabs()

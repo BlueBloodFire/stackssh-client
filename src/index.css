@@ -11,12 +11,12 @@
 }
 
 :root {
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d2d;
-  --border-color: #3c3c3c;
-  --text-primary: #e5e7eb;
-  --text-secondary: #9ca3af;
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f4f4f5;
+  --border-color: #e4e4e7;
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
 }
 
 html {
@@ -62,13 +62,13 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.14);
   border: 3px solid transparent;
   background-clip: padding-box;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.26);
   border: 3px solid transparent;
   background-clip: padding-box;
 }
@@ -90,5 +90,5 @@ body {
 
 /* 选中文本 */
 ::selection {
-  background: rgba(79, 138, 245, 0.35);
+  background: rgba(37, 99, 235, 0.15);
 }

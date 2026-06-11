@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react'
+﻿import { useState, useRef } from 'react'
 import { useThemeStore } from '../stores/themeStore'
 import { useFileExplorerStore, formatFileSize } from '../stores/fileExplorerStore'
 import { uploadFile, createDirectory } from '../api/sshFile'
 import { getRequestBaseUrl } from '../api/request'
+import { getToken } from '../stores/authStore'
 import { useConnectionStore } from '../stores/connectionStore'
 
 interface LocalFileNode {
@@ -219,7 +220,11 @@ export function SFTPWorkspace() {
 
           try {
             const url = `${getRequestBaseUrl()}/api/v1/ssh/file/download?connectionId=${encodeURIComponent(remoteNode.connectionId)}&path=${encodeURIComponent(remoteNode.path)}`
-            const response = await fetch(url, { signal: abortControllerRef.current.signal })
+            const token = getToken()
+            const response = await fetch(url, {
+              signal: abortControllerRef.current.signal,
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+            })
             if (!response.ok) throw new Error('下载请求失败')
 
             const fileHandle = await activeFolder.handle.getFileHandle(remoteNode.name, { create: true })
@@ -541,7 +546,7 @@ export function SFTPWorkspace() {
             draggable
             onDragStart={(e) => handleDragStart(e, node)}
             onDragEnd={() => { delete (window as any).__draggedLocalNode }}
-            className="flex items-center justify-between py-1 px-2 hover:bg-white/5 group transition-colors cursor-grab"
+            className="flex items-center justify-between py-1 px-2 hover:bg-black/5 group transition-colors cursor-grab"
             style={{ paddingLeft: `${8 + depth * 16}px` }}
           >
             <div 

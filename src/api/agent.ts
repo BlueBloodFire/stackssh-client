@@ -2,6 +2,7 @@
  * 智能体 API
  */
 import { get, post, getRequestBaseUrl } from './request'
+import { getToken } from '../stores/authStore'
 
 export interface AiAgentConfigDTO {
   agentId: string
@@ -114,9 +115,13 @@ export function reactChatStream(
   let stepCounter = 0
   let lastFullText = ''
 
+  const token = getToken()
   fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ agentId, userId, sessionId, message, terminalSessionId, connectionId }),
     signal: controller.signal,
   })

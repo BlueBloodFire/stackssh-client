@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useThemeStore, themes, type ThemeName } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { getToken } from '../stores/authStore'
 
 interface SettingsProps {
   open: boolean
@@ -39,8 +40,10 @@ export function Settings({ open, onClose }: SettingsProps) {
     if (!trimmed) return
     setTestStatus('testing')
     try {
+      const token = getToken()
       const res = await fetch(`${trimmed}/api/v1/ssh/connection_list?userId=default`, {
         signal: AbortSignal.timeout(8000),
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       const json = await res.json()
       setTestStatus(json.code === '0000' ? 'success' : 'fail')

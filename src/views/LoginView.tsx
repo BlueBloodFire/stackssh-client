@@ -34,7 +34,6 @@ export function LoginView() {
           setError(res.info || '注册失败')
           return
         }
-        // 注册后自动登录
         const loginRes = await login(username.trim(), password)
         if (loginRes.code !== '0000' || !loginRes.data) {
           setError('注册成功，请手动登录')
@@ -53,31 +52,46 @@ export function LoginView() {
   return (
     <div
       className="w-screen h-screen flex items-center justify-center"
-      style={{ backgroundColor: '#0d1117' }}
+      style={{ backgroundColor: '#f5f6f8' }}
     >
       <div
-        className="w-96 rounded-xl border p-8 shadow-2xl"
-        style={{ backgroundColor: '#161b22', borderColor: '#30363d' }}
+        className="w-[380px] rounded-2xl border p-8"
+        style={{
+          backgroundColor: '#ffffff',
+          borderColor: '#e4e4e7',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 8px 24px rgba(0,0,0,0.06)',
+        }}
       >
         {/* Logo */}
-        <div className="mb-8 text-center">
-          <div className="text-2xl font-bold mb-1" style={{ color: '#58a6ff' }}>
-            StackSSH
+        <div className="mb-7">
+          <div className="flex items-center gap-2.5 mb-1.5">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: '#2563eb' }}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+              </svg>
+            </div>
+            <span className="text-[18px] font-semibold tracking-tight" style={{ color: '#18181b' }}>StackSSH</span>
           </div>
-          <div className="text-sm" style={{ color: '#8b949e' }}>
-            AI SSH 智能终端
-          </div>
+          <p className="text-sm ml-[42px]" style={{ color: '#a1a1aa' }}>AI SSH 智能终端</p>
         </div>
 
         {/* 模式切换 */}
-        <div className="flex mb-6 rounded-lg overflow-hidden border" style={{ borderColor: '#30363d' }}>
+        <div
+          className="flex gap-1 mb-6 p-1 rounded-xl"
+          style={{ backgroundColor: '#f4f4f5' }}
+        >
           {(['login', 'register'] as Mode[]).map((m) => (
             <button
               key={m}
-              className="flex-1 py-2 text-sm font-medium transition-colors"
+              className="flex-1 py-1.5 text-sm font-medium rounded-lg transition-all duration-150"
               style={{
-                backgroundColor: mode === m ? '#21262d' : 'transparent',
-                color: mode === m ? '#e6edf3' : '#8b949e',
+                backgroundColor: mode === m ? '#ffffff' : 'transparent',
+                color: mode === m ? '#18181b' : '#71717a',
+                boxShadow: mode === m ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
               }}
               onClick={() => { setMode(m); setError('') }}
             >
@@ -88,7 +102,7 @@ export function LoginView() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs mb-1.5 font-medium" style={{ color: '#8b949e' }}>
+            <label className="block text-xs mb-1.5 font-medium" style={{ color: '#52525b' }}>
               用户名
             </label>
             <input
@@ -99,17 +113,17 @@ export function LoginView() {
               autoFocus
               className="w-full px-3 py-2 rounded-lg text-sm outline-none border transition-colors"
               style={{
-                backgroundColor: '#0d1117',
-                borderColor: '#30363d',
-                color: '#e6edf3',
+                backgroundColor: '#ffffff',
+                borderColor: '#e4e4e7',
+                color: '#18181b',
               }}
-              onFocus={(e) => (e.target.style.borderColor = '#58a6ff')}
-              onBlur={(e) => (e.target.style.borderColor = '#30363d')}
+              onFocus={(e) => (e.target.style.borderColor = '#2563eb')}
+              onBlur={(e) => (e.target.style.borderColor = '#e4e4e7')}
             />
           </div>
 
           <div>
-            <label className="block text-xs mb-1.5 font-medium" style={{ color: '#8b949e' }}>
+            <label className="block text-xs mb-1.5 font-medium" style={{ color: '#52525b' }}>
               密码
             </label>
             <input
@@ -119,19 +133,19 @@ export function LoginView() {
               placeholder="请输入密码"
               className="w-full px-3 py-2 rounded-lg text-sm outline-none border transition-colors"
               style={{
-                backgroundColor: '#0d1117',
-                borderColor: '#30363d',
-                color: '#e6edf3',
+                backgroundColor: '#ffffff',
+                borderColor: '#e4e4e7',
+                color: '#18181b',
               }}
-              onFocus={(e) => (e.target.style.borderColor = '#58a6ff')}
-              onBlur={(e) => (e.target.style.borderColor = '#30363d')}
+              onFocus={(e) => (e.target.style.borderColor = '#2563eb')}
+              onBlur={(e) => (e.target.style.borderColor = '#e4e4e7')}
             />
           </div>
 
           {error && (
             <div
               className="px-3 py-2 rounded-lg text-xs"
-              style={{ backgroundColor: '#3d1f1f', color: '#f85149', border: '1px solid #5a1e1e' }}
+              style={{ backgroundColor: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}
             >
               {error}
             </div>
@@ -142,9 +156,9 @@ export function LoginView() {
             disabled={loading}
             className="w-full py-2.5 rounded-lg text-sm font-medium transition-opacity"
             style={{
-              backgroundColor: '#238636',
+              backgroundColor: '#2563eb',
               color: '#ffffff',
-              opacity: loading ? 0.6 : 1,
+              opacity: loading ? 0.7 : 1,
               cursor: loading ? 'not-allowed' : 'pointer',
             }}
           >
@@ -153,11 +167,11 @@ export function LoginView() {
         </form>
 
         {mode === 'login' && (
-          <p className="mt-4 text-center text-xs" style={{ color: '#8b949e' }}>
+          <p className="mt-5 text-center text-xs" style={{ color: '#a1a1aa' }}>
             没有账号？{' '}
             <button
-              className="underline"
-              style={{ color: '#58a6ff' }}
+              className="font-medium"
+              style={{ color: '#2563eb' }}
               onClick={() => { setMode('register'); setError('') }}
             >
               立即注册
