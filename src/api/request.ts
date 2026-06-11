@@ -64,6 +64,22 @@ export function setBaseUrl(url: string): void {
 /** 请求超时（毫秒） */
 const TIMEOUT_MS = 15000
 
+/** 获取 JWT Token（运行时读取，避免循环依赖） */
+function getAuthToken(): string | null {
+  return localStorage.getItem('stackssh_token')
+}
+
+/**
+ * 将 HTTP base URL 转换为 WebSocket 基础地址
+ * http://host:port → ws://host:port
+ * https://host:port → wss://host:port
+ * ''（dev proxy 模式）→ ws://localhost:8091
+ */
+export function getWsBaseUrl(): string {
+  const base = baseUrl || 'http://localhost:8091'
+  return base.replace(/^http:\/\//, 'ws://').replace(/^https:\/\//, 'wss://')
+}
+
 /**
  * 通用请求方法
  */
@@ -86,10 +102,16 @@ async function request<T>(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
+  // 构建请求头：添加 JWT Authorization
+  const headers: Record<string, string> = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  const token = getAuthToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
   try {
     const res = await fetch(url, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     })
@@ -123,9 +145,14 @@ export function post<T>(path: string, body?: unknown, params?: Record<string, st
 export async function postFormData<T>(path: string, formData: FormData, signal?: AbortSignal): Promise<ApiResponse<T>> {
   let url = `${baseUrl}${path}`
   
+  const uploadHeaders: Record<string, string> = {}
+  const uploadToken = getAuthToken()
+  if (uploadToken) uploadHeaders['Authorization'] = `Bearer ${uploadToken}`
+
   try {
     const res = await fetch(url, {
       method: 'POST',
+      headers: Object.keys(uploadHeaders).length > 0 ? uploadHeaders : undefined,
       body: formData,
       signal,
     })

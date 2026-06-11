@@ -1,24 +1,27 @@
 import './index.css'
 import { MainView } from './views/MainView'
+import { LoginView } from './views/LoginView'
 import { useEffect } from 'react'
 import { useConnectionStore } from './stores/connectionStore'
+import { useAuthStore } from './stores/authStore'
 import { ConnectionStatus } from './types'
 
 function App() {
+  const { isAuthenticated } = useAuthStore()
   const { startHeartbeat, stopHeartbeat, connections, disconnect } = useConnectionStore()
 
   useEffect(() => {
+    if (!isAuthenticated) return
     // 应用启动时：重置所有连接状态为断开（防止后端状态不同步）
     useConnectionStore.setState((state) => ({
       connections: state.connections.map((c) => ({ ...c, status: ConnectionStatus.DISCONNECTED })),
     }))
-    // 开启心跳检测
     startHeartbeat()
     return () => stopHeartbeat()
-  }, [startHeartbeat, stopHeartbeat])
+  }, [isAuthenticated, startHeartbeat, stopHeartbeat])
 
-  // 应用关闭时断开所有连接
   useEffect(() => {
+    if (!isAuthenticated) return
     const handleBeforeUnload = () => {
       connections
         .filter((c) => c.status === ConnectionStatus.CONNECTED)
@@ -26,9 +29,12 @@ function App() {
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [connections, disconnect])
+  }, [isAuthenticated, connections, disconnect])
 
-  // 使用 MainView 启用 SSH 智能体交互功能
+  if (!isAuthenticated) {
+    return <LoginView />
+  }
+
   return <MainView />
 }
 

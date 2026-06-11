@@ -1,5 +1,6 @@
 import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { useAuthStore } from '../stores/authStore'
 
 interface HeaderProps {
   onToggleSidebar: () => void
@@ -14,6 +15,7 @@ interface HeaderProps {
 export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, terminalVisible, onToggleChat, chatVisible, onOpenSSHModal }: HeaderProps) {
   const { colors } = useThemeStore()
   const { connections, currentConnectionId } = useConnectionStore()
+  const { username, logout } = useAuthStore()
   const currentConn = connections.find(c => c.id === currentConnectionId)
 
   return (
@@ -114,6 +116,25 @@ export function Header({ onToggleSidebar, sidebarVisible, onToggleTerminal, term
           </svg>
           <span>AI 助手</span>
         </button>
+
+        {/* 分隔线 */}
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: colors.border }} />
+
+        {/* 用户名 + 退出 */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px]" style={{ color: colors.textDim }}>{username}</span>
+          <button
+            onClick={logout}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors hover:bg-white/5"
+            style={{ color: colors.textSecondary }}
+            title="退出登录"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>
+            </svg>
+            退出
+          </button>
+        </div>
       </div>
     </div>
   )
