@@ -21,6 +21,20 @@ export interface TerminalOpenResponse {
   initialOutput: string
 }
 
+export interface TerminalSessionSummary {
+  sessionId: string
+  connectionId: string
+  cols: number
+  rows: number
+  createdAt?: string
+  lastActiveAt?: string
+}
+
+export interface AccessTicketResponse {
+  ticket: string
+  expiresInSeconds: number
+}
+
 /** 执行命令请求（整行模式，兼容旧逻辑） */
 export interface TerminalExecPayload {
   sessionId: string
@@ -90,8 +104,20 @@ export interface CommandCheckResult {
 }
 
 /** 检测命令是否危险 */
-export function checkCommand(command: string) {
-  return post<CommandCheckResult>(`${BASE}/check-command`, { command })
+export function checkCommand(sessionId: string, command: string) {
+  return post<CommandCheckResult>(`${BASE}/check-command`, { sessionId, command })
+}
+
+export function approveCommand(sessionId: string, command: string) {
+  return post<void>(`${BASE}/approve-command`, { sessionId, command })
+}
+
+export function issueWsTicket(sessionId: string) {
+  return post<AccessTicketResponse>(`${BASE}/ws-ticket`, { sessionId })
+}
+
+export function listTerminalSessions(connectionId: string) {
+  return get<TerminalSessionSummary[]>(`${BASE}/sessions`, { connectionId })
 }
 
 // ===== 终端录制 API =====

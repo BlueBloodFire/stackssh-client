@@ -1,23 +1,23 @@
 import { create } from 'zustand'
 
-export type ThemeName = 'dark' | 'light' | 'midnight' | 'forest'
+export type ThemeName = 'dark' | 'light' | 'midnight'
 
 export interface ThemeColors {
-  bgPrimary: string       // 主背景 #1e1e1e
-  bgSecondary: string     // 侧栏背景 #252526
-  bgTertiary: string      // 控件/卡片 #2d2d2d
-  bgInput: string         // 输入框 #1e1e1e
-  bgHover: string         // hover 态
-  bgTitleBar: string      // 标题栏 #323233
-  border: string          // 边框 #3c3c3c
-  text: string            // 正文 #e5e7eb
-  textSecondary: string   // 次要文字 #9ca3af
-  textDim: string         // 弱化文字 #6b7280
-  accent: string          // 主色（蓝）
-  accentSoft: string      // 主色淡底
-  green: string           // 成功/在线
-  red: string             // 错误
-  yellow: string          // 警告
+  bgPrimary: string
+  bgSecondary: string
+  bgTertiary: string
+  bgInput: string
+  bgHover: string
+  bgTitleBar: string
+  border: string
+  text: string
+  textSecondary: string
+  textDim: string
+  accent: string
+  accentSoft: string
+  green: string
+  red: string
+  yellow: string
 }
 
 export interface ThemeConfig {
@@ -29,49 +29,49 @@ export interface ThemeConfig {
 export const themes: Record<ThemeName, ThemeConfig> = {
   dark: {
     name: 'dark',
-    label: 'VS Code Dark',
+    label: '默认灰色',
     colors: {
-      bgPrimary: '#1e1e1e',
-      bgSecondary: '#252526',
-      bgTertiary: '#2d2d2d',
-      bgInput: '#1e1e1e',
-      bgHover: '#2a2d2e',
-      bgTitleBar: '#323233',
-      border: '#3c3c3c',
-      text: '#e5e7eb',
-      textSecondary: '#9ca3af',
-      textDim: '#6b7280',
-      accent: '#4f8af5',
-      accentSoft: 'rgba(79,138,245,0.12)',
-      green: '#3fb950',
-      red: '#f85149',
-      yellow: '#d29922',
+      bgPrimary: '#12171d',
+      bgSecondary: '#1a212b',
+      bgTertiary: '#222b36',
+      bgInput: '#151c24',
+      bgHover: '#283241',
+      bgTitleBar: '#141b24',
+      border: '#313b49',
+      text: '#edf2f7',
+      textSecondary: '#b7c2cf',
+      textDim: '#7f8b9c',
+      accent: '#6aa4ff',
+      accentSoft: 'rgba(106,164,255,0.14)',
+      green: '#42c46f',
+      red: '#ef6b73',
+      yellow: '#f0b24d',
     },
   },
   light: {
     name: 'light',
-    label: '浅色',
+    label: 'GitHub 白',
     colors: {
-      bgPrimary: '#ffffff',
-      bgSecondary: '#fafafa',
-      bgTertiary: '#f4f4f5',
+      bgPrimary: '#f6f8fa',
+      bgSecondary: '#ffffff',
+      bgTertiary: '#f6f8fa',
       bgInput: '#ffffff',
-      bgHover: '#f4f4f5',
-      bgTitleBar: '#f9f9f9',
-      border: '#e4e4e7',
-      text: '#18181b',
-      textSecondary: '#52525b',
-      textDim: '#a1a1aa',
-      accent: '#2563eb',
-      accentSoft: 'rgba(37,99,235,0.08)',
-      green: '#16a34a',
-      red: '#dc2626',
-      yellow: '#ca8a04',
+      bgHover: '#eef2f6',
+      bgTitleBar: '#ffffff',
+      border: '#d0d7de',
+      text: '#1f2328',
+      textSecondary: '#3d4753',
+      textDim: '#6e7781',
+      accent: '#0969da',
+      accentSoft: 'rgba(9,105,218,0.10)',
+      green: '#1f883d',
+      red: '#cf222e',
+      yellow: '#9a6700',
     },
   },
   midnight: {
     name: 'midnight',
-    label: 'GitHub Dark',
+    label: 'GitHub 黑',
     colors: {
       bgPrimary: '#0d1117',
       bgSecondary: '#161b22',
@@ -90,32 +90,10 @@ export const themes: Record<ThemeName, ThemeConfig> = {
       yellow: '#d29922',
     },
   },
-  forest: {
-    name: 'forest',
-    label: '森林',
-    colors: {
-      bgPrimary: '#1a1f16',
-      bgSecondary: '#222820',
-      bgTertiary: '#2d332a',
-      bgInput: '#1a1f16',
-      bgHover: '#282e24',
-      bgTitleBar: '#222820',
-      border: '#3d4538',
-      text: '#d4e4d8',
-      textSecondary: '#8aaa90',
-      textDim: '#5a6b5e',
-      accent: '#4ade80',
-      accentSoft: 'rgba(74,222,128,0.12)',
-      green: '#22c55e',
-      red: '#ef4444',
-      yellow: '#eab308',
-    },
-  },
 }
 
 const THEME_STORAGE_KEY = 'stackssh_theme'
 
-/** 从 localStorage 读取已保存的主题，默认 light */
 function getInitialTheme(): ThemeName {
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY)
@@ -123,9 +101,9 @@ function getInitialTheme(): ThemeName {
       return saved as ThemeName
     }
   } catch {
-    // localStorage 不可用时忽略
+    // ignore localStorage failures
   }
-  return 'light'
+  return 'dark'
 }
 
 interface ThemeStore {
@@ -139,12 +117,11 @@ const initialTheme = getInitialTheme()
 export const useThemeStore = create<ThemeStore>((set) => ({
   currentTheme: initialTheme,
   colors: themes[initialTheme].colors,
-
   setTheme: (name) => {
     try {
       localStorage.setItem(THEME_STORAGE_KEY, name)
     } catch {
-      // localStorage 不可用时忽略
+      // ignore localStorage failures
     }
     set({
       currentTheme: name,

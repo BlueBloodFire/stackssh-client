@@ -8,10 +8,9 @@ import { useThemeStore } from '../stores/themeStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useSshAgentStore } from '../stores/sshAgentStore'
 import {
-  openTerminal, resizeTerminal, closeTerminal, checkCommand,
+  openTerminal, resizeTerminal, closeTerminal, checkCommand, approveCommand, issueWsTicket, listTerminalSessions,
 } from '../api/terminal'
 import { getWsBaseUrl } from '../api/request'
-import { getToken } from '../stores/authStore'
 import { ConnectionStatus } from '../types'
 import { COMMAND_CATEGORIES, type CommandCategory, type CommandItem } from './CommandData/commandData'
 
@@ -149,10 +148,13 @@ export function TerminalPanel({
   }, [closeWebSocket, connections, disconnect])
 
   // ---- 建立 WebSocket 连接（替换轮询）----
-  const startWebSocket = useCallback((state: ConnectionTerminalState, sessionId: string) => {
+  const startWebSocket = useCallback(async (state: ConnectionTerminalState, sessionId: string) => {
     closeWebSocket(state)
-    const token = getToken() ?? ''
-    const wsUrl = `${getWsBaseUrl()}/ws/terminal?sessionId=${sessionId}&token=${token}`
+    const ticketRes = await issueWsTicket(sessionId)
+    if (ticketRes.code !== '0000' || !ticketRes.data?.ticket) {
+      throw new Error(ticketRes.info || '获取终端票据失败')
+    }
+    const wsUrl = `${getWsBaseUrl()}/ws/terminal?sessionId=${sessionId}&ticket=${ticketRes.data.ticket}`
     const ws = new WebSocket(wsUrl)
     ws.onmessage = (event) => {
       if (state.disconnected) return
@@ -196,7 +198,7 @@ export function TerminalPanel({
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
-      fontSize: 13,
+      fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
       scrollback: 100000,
       theme: {
@@ -309,7 +311,18 @@ export function TerminalPanel({
     state.resizeObserver = ro
 
     try {
-      const res = await openTerminal({ connectionId, cols: term.cols, rows: term.rows })
+      const existingSessionIds = new Set(
+        Array.from(terminalStates.current.values())
+          .map((item) => item.session?.sessionId)
+          .filter((item): item is string => Boolean(item))
+      )
+      const reusableSessions = await listTerminalSessions(connectionId)
+      const reusableSession = reusableSessions.code === '0000' && reusableSessions.data
+        ? reusableSessions.data.find((item) => !existingSessionIds.has(item.sessionId))
+        : null
+      const res = reusableSession
+        ? { code: '0000', info: 'OK', data: { sessionId: reusableSession.sessionId, connectionId, initialOutput: '' } }
+        : await openTerminal({ connectionId, cols: term.cols, rows: term.rows })
       if (res.code !== '0000' || !res.data) {
         term.writeln(`\x1b[31m打开终端失败: ${res.info}\x1b[0m`)
         state.connecting = false
@@ -346,7 +359,7 @@ export function TerminalPanel({
 
             // 异步检测危险命令
             try {
-              const checkRes = await checkCommand(cmd)
+              const checkRes = await checkCommand(state.session.sessionId, cmd)
               if (checkRes.data?.dangerous) {
                 state.pendingDangerConfirm = true
                 state.pendingEnter = data
@@ -379,7 +392,7 @@ export function TerminalPanel({
         state.inputBuffer.push(data)
       })
 
-      startWebSocket(state, sessionId)
+      await startWebSocket(state, sessionId)
     } catch (err: any) {
       term.writeln(`\x1b[31m连接错误: ${err.message || '未知错误'}\x1b[0m`)
     } finally {
@@ -507,7 +520,11 @@ export function TerminalPanel({
     if (!state?.session) return
     if (!state.container.parentNode) {
       wrapperRef.current.appendChild(state.container)
-      if (state.session) startWebSocket(state, state.session.sessionId)
+      if (state.session) {
+        startWebSocket(state, state.session.sessionId).catch(() => {
+          state.terminal.writeln('\x1b[31m终端恢复失败，请重新连接\x1b[0m')
+        })
+      }
     }
     requestAnimationFrame(() => state.terminal.focus())
   }, [currentConnectionId, startWebSocket])
@@ -552,12 +569,21 @@ export function TerminalPanel({
     const state = terminalStates.current.get(tabId)
     if (!state) return
     state.pendingDangerConfirm = false
-    if (confirmed && state.pendingEnter) {
+    if (confirmed && state.pendingEnter && state.session) {
       const enter = state.pendingEnter
+      const command = dangerDialog.command
       state.pendingEnter = null
-      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-        try { state.ws.send(enter) } catch { /* ignore */ }
-      }
+      approveCommand(state.session.sessionId, command).then((res) => {
+        if (res.code !== '0000') {
+          state.terminal.writeln(`\r\n\x1b[31m${res.info || '危险命令确认失败'}\x1b[0m`)
+          return
+        }
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          try { state.ws.send(enter) } catch { /* ignore */ }
+        }
+      }).catch(() => {
+        state.terminal.writeln('\r\n\x1b[31m危险命令确认失败\x1b[0m')
+      })
     } else {
       state.pendingEnter = null
       if (state.ws && state.ws.readyState === WebSocket.OPEN) {
@@ -602,7 +628,7 @@ export function TerminalPanel({
         <div className="text-center">
           <div className="text-6xl mb-4">🖥️</div>
           <h2 className="text-lg font-medium mb-2" style={{ color: colors.text }}>未连接 SSH 服务器</h2>
-          <p className="text-sm mb-6" style={{ color: colors.textDim }}>请在左侧选择或添加 SSH 连接</p>
+          <p className="text-[14px] mb-6" style={{ color: colors.textDim }}>请在左侧选择或添加 SSH 连接</p>
         </div>
       </div>
     )
@@ -611,7 +637,7 @@ export function TerminalPanel({
   return (
     <div className="h-full flex flex-col min-w-0 relative" style={{ backgroundColor: colors.bgPrimary }}>
       {/* ===== 工具栏 ===== */}
-      <div className="h-9 flex items-center px-2 border-b flex-shrink-0 gap-1" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
+      <div className="h-11 flex items-center px-3 border-b flex-shrink-0 gap-2" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
         {/* 标签页列表 */}
         <div className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto no-scrollbar">
           {tabs.map((tab) => {
@@ -621,7 +647,7 @@ export function TerminalPanel({
               <button
                 key={tab.tabId}
                 onClick={() => { if (!isActive) activateTab(tab.tabId, currentConn.id) }}
-                className="group flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] flex-shrink-0 transition-colors"
+                className="group flex items-center gap-2 px-3 py-1.5 rounded-xl text-[13px] font-medium flex-shrink-0 transition-colors"
                 style={{
                   backgroundColor: isActive ? colors.bgPrimary : 'transparent',
                   color: isActive ? colors.text : colors.textDim,
@@ -629,7 +655,7 @@ export function TerminalPanel({
                 }}
               >
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: tabState?.disconnected ? colors.red : (tabState?.session ? colors.green : colors.yellow) }} />
-                <span className="max-w-[80px] truncate">{tab.label}</span>
+                <span className="max-w-[96px] truncate">{tab.label}</span>
                 {tabs.length > 1 && (
                   <span
                     onClick={(e) => { e.stopPropagation(); closeTab(tab.tabId, currentConn.id) }}
@@ -648,7 +674,7 @@ export function TerminalPanel({
                 syncTabs(currentConn.id)
                 openTerminalSession(tabId, currentConn.id).then(() => activateTab(tabId, currentConn.id))
               }}
-              className="flex-shrink-0 px-2 py-0.5 rounded hover:bg-white/10 transition-colors text-[13px] leading-none"
+              className="flex-shrink-0 px-2.5 py-1 rounded-xl hover:bg-white/10 transition-colors text-[15px] leading-none"
               style={{ color: colors.textDim }}
               title="新建终端标签"
             >+</button>
@@ -696,7 +722,7 @@ export function TerminalPanel({
             </>
           )}
           {currentState?.disconnected && (
-            <button onClick={() => currentActiveTabId && handleReconnect(currentActiveTabId, currentConn.id)} className="px-2 py-1 rounded text-[11px] font-medium transition-colors" style={{ backgroundColor: colors.green, color: '#ffffff' }}>
+            <button onClick={() => currentActiveTabId && handleReconnect(currentActiveTabId, currentConn.id)} className="px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors" style={{ backgroundColor: colors.green, color: '#ffffff' }}>
               重新连接
             </button>
           )}
@@ -705,7 +731,7 @@ export function TerminalPanel({
 
       {/* ===== 搜索栏 ===== */}
       {showSearch && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b flex-shrink-0" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
+        <div className="flex items-center gap-2 px-3 py-2 border-b flex-shrink-0" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
           <input
             autoFocus
             type="text"
@@ -716,12 +742,12 @@ export function TerminalPanel({
               if (e.key === 'Escape') { setShowSearch(false); setSearchQuery('') }
             }}
             placeholder="搜索终端内容..."
-            className="flex-1 bg-transparent outline-none text-[12px]"
+            className="flex-1 bg-transparent outline-none text-[13px]"
             style={{ color: colors.text }}
           />
-          <button onClick={() => handleSearch('prev')} className="p-1 rounded hover:bg-white/10 text-[11px]" style={{ color: colors.textDim }}>↑</button>
-          <button onClick={() => handleSearch('next')} className="p-1 rounded hover:bg-white/10 text-[11px]" style={{ color: colors.textDim }}>↓</button>
-          <button onClick={() => { setShowSearch(false); setSearchQuery('') }} className="p-1 rounded hover:bg-white/10 text-[11px]" style={{ color: colors.textDim }}>✕</button>
+          <button onClick={() => handleSearch('prev')} className="px-2 py-1 rounded-lg hover:bg-white/10 text-[12px]" style={{ color: colors.textDim }}>↑</button>
+          <button onClick={() => handleSearch('next')} className="px-2 py-1 rounded-lg hover:bg-white/10 text-[12px]" style={{ color: colors.textDim }}>↓</button>
+          <button onClick={() => { setShowSearch(false); setSearchQuery('') }} className="px-2 py-1 rounded-lg hover:bg-white/10 text-[12px]" style={{ color: colors.textDim }}>✕</button>
         </div>
       )}
 
@@ -766,15 +792,15 @@ export function TerminalPanel({
                 <div className="text-center">
                   <div className="text-6xl mb-4">❌</div>
                   <h2 className="text-lg font-medium mb-2" style={{ color: colors.red }}>连接失败</h2>
-                  <button onClick={() => connect(currentConn.id)} className="px-4 py-2 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>重试连接</button>
+                  <button onClick={() => connect(currentConn.id)} className="px-4 py-2.5 rounded-xl text-[13px] font-medium transition-colors" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>重试连接</button>
                 </div>
               )}
               {currentConn.status === ConnectionStatus.DISCONNECTED && (
                 <div className="text-center">
                   <div className="text-6xl mb-4">🔌</div>
                   <h2 className="text-lg font-medium mb-2" style={{ color: colors.text }}>{currentConn.name}</h2>
-                  <p className="text-sm mb-2" style={{ color: colors.textDim }}>{currentConn.username}@{currentConn.host}:{currentConn.port}</p>
-                  <button onClick={() => connect(currentConn.id)} className="px-4 py-2 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>连接服务器</button>
+                  <p className="text-[14px] mb-2" style={{ color: colors.textDim }}>{currentConn.username}@{currentConn.host}:{currentConn.port}</p>
+                  <button onClick={() => connect(currentConn.id)} className="px-4 py-2.5 rounded-xl text-[13px] font-medium transition-colors" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>连接服务器</button>
                 </div>
               )}
             </div>
@@ -808,8 +834,8 @@ export function TerminalPanel({
       {/* ===== 断连提示 ===== */}
       {currentState?.disconnected && (
         <div className="p-3 border-t flex items-center justify-between" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
-          <span className="text-xs" style={{ color: colors.red }}>⚠️ 终端连接已断开</span>
-          <button onClick={() => currentActiveTabId && handleReconnect(currentActiveTabId, currentConn.id)} className="px-3 py-1 rounded text-xs font-medium" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>重新连接</button>
+          <span className="text-[13px]" style={{ color: colors.red }}>⚠️ 终端连接已断开</span>
+          <button onClick={() => currentActiveTabId && handleReconnect(currentActiveTabId, currentConn.id)} className="px-3 py-1.5 rounded-xl text-[12px] font-medium" style={{ backgroundColor: colors.accent, color: '#ffffff' }}>重新连接</button>
         </div>
       )}
 
@@ -835,15 +861,15 @@ export function TerminalPanel({
               <span className="text-xl">⚠️</span>
               <h3 className="font-semibold" style={{ color: colors.red }}>危险命令警告</h3>
             </div>
-            <p className="text-sm mb-2" style={{ color: colors.textDim }}>{dangerDialog.warning}</p>
-            <div className="rounded px-3 py-2 mb-4 font-mono text-sm" style={{ backgroundColor: colors.bgPrimary, color: colors.text }}>
+            <p className="text-[14px] mb-2" style={{ color: colors.textDim }}>{dangerDialog.warning}</p>
+            <div className="rounded-xl px-3 py-2.5 mb-4 font-mono text-[13px]" style={{ backgroundColor: colors.bgPrimary, color: colors.text }}>
               {dangerDialog.command}
             </div>
             <div className="flex gap-3">
-              <button onClick={() => handleDangerConfirm(false)} className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }}>
+              <button onClick={() => handleDangerConfirm(false)} className="flex-1 py-2.5 rounded-xl text-[13px] font-medium transition-colors" style={{ backgroundColor: colors.bgPrimary, color: colors.text, border: `1px solid ${colors.border}` }}>
                 取消
               </button>
-              <button onClick={() => handleDangerConfirm(true)} className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: colors.red, color: '#ffffff' }}>
+              <button onClick={() => handleDangerConfirm(true)} className="flex-1 py-2.5 rounded-xl text-[13px] font-medium transition-colors" style={{ backgroundColor: colors.red, color: '#ffffff' }}>
                 仍然执行
               </button>
             </div>
@@ -871,19 +897,19 @@ function CommandHistoryPanel({
   onExecute: (cmd: string) => void
 }) {
   return (
-    <div className="w-72 flex-shrink-0 border-l overflow-hidden flex flex-col" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
+    <div className="w-80 flex-shrink-0 border-l overflow-hidden flex flex-col" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
       <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: colors.border }}>
-        <span className="text-xs font-medium" style={{ color: colors.text }}>命令历史 ({history.length})</span>
+        <span className="text-[13px] font-medium" style={{ color: colors.text }}>命令历史 ({history.length})</span>
         <button onClick={onClose} className="p-1 rounded hover:bg-black/5" style={{ color: colors.textDim }}>✕</button>
       </div>
       <div className="flex-1 overflow-y-auto">
         {history.length === 0
-          ? <p className="text-xs text-center py-4" style={{ color: colors.textDim }}>暂无命令历史</p>
+          ? <p className="text-[13px] text-center py-4" style={{ color: colors.textDim }}>暂无命令历史</p>
           : [...history].reverse().map((cmd, idx) => (
             <div key={idx} className="group flex items-center px-3 py-2 hover:bg-black/5 gap-2" style={{ borderBottom: `1px solid ${colors.border}20` }}>
-              <span className="flex-1 text-[11px] font-mono truncate" style={{ color: colors.text }} title={cmd}>{cmd}</span>
-              <button onClick={() => onInsert(cmd)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-[10px]" style={{ color: colors.accent }} title="插入">插</button>
-              <button onClick={() => onExecute(cmd)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-[10px]" style={{ color: colors.green }} title="执行">▶</button>
+              <span className="flex-1 text-[12px] font-mono truncate" style={{ color: colors.text }} title={cmd}>{cmd}</span>
+              <button onClick={() => onInsert(cmd)} className="opacity-0 group-hover:opacity-100 px-1.5 py-1 rounded-lg hover:bg-white/10 text-[11px]" style={{ color: colors.accent }} title="插入">插</button>
+              <button onClick={() => onExecute(cmd)} className="opacity-0 group-hover:opacity-100 px-1.5 py-1 rounded-lg hover:bg-white/10 text-[11px]" style={{ color: colors.green }} title="执行">▶</button>
             </div>
           ))}
       </div>
@@ -920,21 +946,21 @@ function CommandSidebar({
   }
 
   return (
-    <div className="absolute right-0 top-9 bottom-0 w-80 border-l overflow-hidden flex flex-col z-20" style={{ backgroundColor: colors.bgPrimary, borderColor: colors.border }}>
+    <div className="absolute right-0 top-11 bottom-0 w-80 border-l overflow-hidden flex flex-col z-20" style={{ backgroundColor: colors.bgPrimary, borderColor: colors.border }}>
       <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: colors.border }}>
-        <span className="text-xs font-medium" style={{ color: colors.text }}>命令辅助</span>
+        <span className="text-[13px] font-medium" style={{ color: colors.text }}>命令辅助</span>
         {!isRoot && (
-          <span className="text-[10px] px-2 py-0.5 rounded" style={{ backgroundColor: colors.accent + '20', color: colors.accent }}>非 root，自动加 sudo</span>
+          <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: colors.accent + '20', color: colors.accent }}>非 root，自动加 sudo</span>
         )}
       </div>
       <div className="flex-1 overflow-y-auto p-3">
         {categories.map((category) => (
           <div key={category.name} className="mb-4">
             <button onClick={() => onToggleCategory(expandedCategory === category.name ? null : category.name)} className="w-full flex items-center justify-between px-3 py-2 rounded text-left mb-2" style={{ backgroundColor: colors.bgSecondary, color: colors.text }}>
-              <span className="text-xs flex items-center gap-1.5">
+              <span className="text-[13px] flex items-center gap-1.5">
                 <span>{category.emoji}</span>
                 <span className="font-medium">{category.name}</span>
-                <span className="text-[10px]" style={{ color: colors.textDim }}>({category.commands.length})</span>
+                <span className="text-[11px]" style={{ color: colors.textDim }}>({category.commands.length})</span>
               </span>
               <span style={{ color: colors.textDim }}>{expandedCategory === category.name ? '▼' : '▶'}</span>
             </button>
@@ -943,13 +969,13 @@ function CommandSidebar({
                 {category.commands.map((cmdItem: CommandItem, index: number) => (
                   <div key={index} className="group">
                     <div className="flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer border hover:opacity-90 transition-all" style={{ backgroundColor: colors.bgPrimary, borderColor: colors.border }} onClick={() => onSelectCommand(cmdItem.command)}>
-                      <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-mono" style={{ backgroundColor: colors.bgSecondary, color: colors.textDim }}>{index + 1}</div>
+                      <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-[11px] font-mono" style={{ backgroundColor: colors.bgSecondary, color: colors.textDim }}>{index + 1}</div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-[11px] font-mono flex items-center gap-1.5 mb-1">
-                          {needsSudo(cmdItem.command) && <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: colors.green + '20', color: colors.green }}>sudo</span>}
+                        <div className="text-[12px] font-mono flex items-center gap-1.5 mb-1">
+                          {needsSudo(cmdItem.command) && <span className="px-1.5 py-0.5 rounded text-[11px]" style={{ backgroundColor: colors.green + '20', color: colors.green }}>sudo</span>}
                           <span style={{ color: colors.accent }}>{cmdItem.command}</span>
                         </div>
-                        <div className="text-[10px] leading-relaxed" style={{ color: colors.textDim }}>{cmdItem.description}</div>
+                        <div className="text-[11px] leading-relaxed" style={{ color: colors.textDim }}>{cmdItem.description}</div>
                       </div>
                       <button onClick={(e) => handleCopyCommand(e, cmdItem.command)} className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-white/10 flex-shrink-0" style={{ color: colors.textDim }} title="复制">
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>

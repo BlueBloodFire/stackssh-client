@@ -719,8 +719,9 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
               <button
                 className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 flex items-center gap-2 transition-colors"
                 style={{ color: colors.text }}
-                onClick={() => {
-                  const url = downloadFileUrl(contextMenu.connectionId, node.path)
+                onClick={async () => {
+                  const url = await downloadFileUrl(contextMenu.connectionId, node.path)
+                  if (!url) return
                   const a = document.createElement('a')
                   a.href = url
                   a.download = node.name
@@ -1187,9 +1188,10 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
                               <button
                                 className="opacity-0 group-hover:opacity-100 px-1 py-0.5 rounded text-[10px] transition-opacity"
                                 style={{ backgroundColor: colors.bgPrimary, color: colors.textSecondary, border: `1px solid ${colors.border}` }}
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation()
-                                  const url = downloadFileUrl(browsingConnection.id, node.path)
+                                  const url = await downloadFileUrl(browsingConnection.id, node.path)
+                                  if (!url) return
                                   const a = document.createElement('a')
                                   a.href = url
                                   a.download = node.name
@@ -1259,14 +1261,40 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
               <div className="flex flex-col flex-1 overflow-hidden">
                 <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4">
                   {toolsError && (
-                    <div className="text-[11px] px-2 py-1.5 rounded" style={{ backgroundColor: `${colors.red}15`, color: colors.red, border: `1px solid ${colors.red}30` }}>{toolsError}</div>
+                    <div className="text-[12px] px-2.5 py-2 rounded-xl" style={{ backgroundColor: `${colors.red}15`, color: colors.red, border: `1px solid ${colors.red}30` }}>{toolsError}</div>
                   )}
+
+                  <div className="rounded-2xl p-4" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
+                    <div className="mb-2">
+                      <div>
+                        <h3 className="text-[15px] font-semibold" style={{ color: colors.text }}>AI 能力中心</h3>
+                        <p className="text-[12px] mt-1 leading-5" style={{ color: colors.textSecondary }}>
+                          管理当前 Agent 的外部工具、工作流能力和知识上下文。
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 mt-3">
+                      {[
+                        ['MCP', '决定 AI 能调用哪些外部工具与服务'],
+                        ['Skills', '决定 AI 如何组织步骤与推进任务'],
+                        ['RAG', '决定 AI 回答时能引用哪些稳定知识'],
+                      ].map(([title, desc]) => (
+                        <div key={title} className="rounded-xl px-3 py-2.5" style={{ backgroundColor: colors.bgSecondary, border: `1px solid ${colors.border}` }}>
+                          <div className="text-[12px] font-semibold mb-1" style={{ color: colors.text }}>{title}</div>
+                          <div className="text-[12px] leading-5" style={{ color: colors.textDim }}>{desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
                   {/* ── MCP 工具 ── */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: colors.textDim }}>MCP 工具</span>
-                      <button onClick={() => setAddMcpOpen(!addMcpOpen)} className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors" style={{ backgroundColor: addMcpOpen ? colors.accent : colors.bgTertiary, color: addMcpOpen ? '#fff' : colors.textSecondary, border: `1px solid ${colors.border}` }}>
+                      <div>
+                        <span className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: colors.textDim }}>MCP 外部能力</span>
+                        <p className="text-[12px] mt-1" style={{ color: colors.textSecondary }}>让 Agent 能读文件、调服务、访问外部系统。</p>
+                      </div>
+                      <button onClick={() => setAddMcpOpen(!addMcpOpen)} className="flex items-center gap-1 px-2.5 py-1 rounded text-[12px] transition-colors" style={{ backgroundColor: addMcpOpen ? colors.accent : colors.bgTertiary, color: addMcpOpen ? '#fff' : colors.textSecondary, border: `1px solid ${colors.border}` }}>
                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         添加
                       </button>
@@ -1276,67 +1304,67 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
                       <div className="mb-2 p-2.5 rounded-lg space-y-2" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
                         <div className="flex gap-2">
                           <div className="flex-1">
-                            <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>类型</label>
-                            <select value={addMcpType} onChange={e => setAddMcpType(e.target.value as any)} className="w-full text-[11px] px-2 py-1 rounded" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}>
+                            <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>类型</label>
+                            <select value={addMcpType} onChange={e => setAddMcpType(e.target.value as any)} className="w-full text-[12px] px-2.5 py-1.5 rounded" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}>
                               <option value="sse">SSE</option>
                               <option value="stdio">Stdio</option>
                               <option value="local">Local</option>
                             </select>
                           </div>
                           <div className="flex-1">
-                            <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>名称</label>
-                            <input value={addMcpName} onChange={e => setAddMcpName(e.target.value)} placeholder="my-mcp" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                            <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>名称</label>
+                            <input value={addMcpName} onChange={e => setAddMcpName(e.target.value)} placeholder="my-mcp" className="w-full text-[12px] px-2.5 py-1.5 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
                           </div>
                         </div>
                         {addMcpType === 'sse' && (
                           <>
                             <div>
-                              <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>Base URI</label>
-                              <input value={addMcpBaseUri} onChange={e => setAddMcpBaseUri(e.target.value)} placeholder="http://localhost:8090" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                              <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>Base URI</label>
+                              <input value={addMcpBaseUri} onChange={e => setAddMcpBaseUri(e.target.value)} placeholder="http://localhost:8090" className="w-full text-[12px] px-2.5 py-1.5 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
                             </div>
                             <div>
-                              <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>SSE 端点</label>
-                              <input value={addMcpSseEndpoint} onChange={e => setAddMcpSseEndpoint(e.target.value)} placeholder="/sse" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                              <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>SSE 端点</label>
+                              <input value={addMcpSseEndpoint} onChange={e => setAddMcpSseEndpoint(e.target.value)} placeholder="/sse" className="w-full text-[12px] px-2.5 py-1.5 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
                             </div>
                           </>
                         )}
                         {addMcpType === 'stdio' && (
                           <>
                             <div>
-                              <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>命令</label>
-                              <input value={addMcpCommand} onChange={e => setAddMcpCommand(e.target.value)} placeholder="node /path/to/server.js" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                              <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>命令</label>
+                              <input value={addMcpCommand} onChange={e => setAddMcpCommand(e.target.value)} placeholder="node /path/to/server.js" className="w-full text-[12px] px-2.5 py-1.5 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
                             </div>
                             <div>
-                              <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>参数（逗号分隔）</label>
-                              <input value={addMcpArgs} onChange={e => setAddMcpArgs(e.target.value)} placeholder="--port,8080" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                              <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>参数（逗号分隔）</label>
+                              <input value={addMcpArgs} onChange={e => setAddMcpArgs(e.target.value)} placeholder="--port,8080" className="w-full text-[12px] px-2.5 py-1.5 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
                             </div>
                           </>
                         )}
                         {addMcpType !== 'local' && (
                           <div>
-                            <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>超时(ms)</label>
-                            <input type="number" value={addMcpTimeout} onChange={e => setAddMcpTimeout(Number(e.target.value))} className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                            <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>超时(ms)</label>
+                            <input type="number" value={addMcpTimeout} onChange={e => setAddMcpTimeout(Number(e.target.value))} className="w-full text-[12px] px-2.5 py-1.5 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
                           </div>
                         )}
                         <div className="flex gap-2 pt-1">
-                          <button onClick={handleAddMcp} disabled={!addMcpName.trim()} className="flex-1 py-1 rounded text-[11px] font-medium transition-colors" style={{ backgroundColor: addMcpName.trim() ? colors.accent : colors.bgTertiary, color: addMcpName.trim() ? '#fff' : colors.textDim }}>确认添加</button>
-                          <button onClick={() => setAddMcpOpen(false)} className="px-3 py-1 rounded text-[11px] transition-colors" style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}>取消</button>
+                          <button onClick={handleAddMcp} disabled={!addMcpName.trim()} className="flex-1 py-1.5 rounded text-[12px] font-medium transition-colors" style={{ backgroundColor: addMcpName.trim() ? colors.accent : colors.bgTertiary, color: addMcpName.trim() ? '#fff' : colors.textDim }}>确认添加</button>
+                          <button onClick={() => setAddMcpOpen(false)} className="px-3 py-1.5 rounded text-[12px] transition-colors" style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}>取消</button>
                         </div>
                       </div>
                     )}
 
                     {toolsConfig.mcpList.length === 0 ? (
-                      <p className="text-[11px] px-1" style={{ color: colors.textDim }}>暂无 MCP 工具</p>
+                      <p className="text-[12px] px-1" style={{ color: colors.textDim }}>暂无 MCP 工具</p>
                     ) : (
                       <div className="space-y-1">
                         {toolsConfig.mcpList.map((mcp, idx) => (
                           <div key={idx} className="flex items-center justify-between px-2 py-1.5 rounded" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium shrink-0" style={{ backgroundColor: `${colors.accent}20`, color: colors.accent }}>{mcp.type}</span>
+                              <span className="text-[11px] px-1.5 py-0.5 rounded font-mono font-medium shrink-0" style={{ backgroundColor: `${colors.accent}20`, color: colors.accent }}>{mcp.type}</span>
                               <div className="min-w-0">
-                                <p className="text-[11px] font-medium truncate" style={{ color: colors.text }}>{mcp.name || '—'}</p>
-                                {mcp.baseUri && <p className="text-[10px] truncate font-mono" style={{ color: colors.textDim }}>{mcp.baseUri}</p>}
-                                {mcp.command && <p className="text-[10px] truncate font-mono" style={{ color: colors.textDim }}>{mcp.command}</p>}
+                                <p className="text-[12px] font-medium truncate" style={{ color: colors.text }}>{mcp.name || '—'}</p>
+                                {mcp.baseUri && <p className="text-[11px] truncate font-mono" style={{ color: colors.textDim }}>{mcp.baseUri}</p>}
+                                {mcp.command && <p className="text-[11px] truncate font-mono" style={{ color: colors.textDim }}>{mcp.command}</p>}
                               </div>
                             </div>
                             <button onClick={() => handleDeleteMcp(idx)} className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10 transition-colors" style={{ color: colors.textDim }}>
@@ -1351,8 +1379,11 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
                   {/* ── Skills ── */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: colors.textDim }}>Skills</span>
-                      <button onClick={() => setAddSkillOpen(!addSkillOpen)} className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors" style={{ backgroundColor: addSkillOpen ? colors.accent : colors.bgTertiary, color: addSkillOpen ? '#fff' : colors.textSecondary, border: `1px solid ${colors.border}` }}>
+                      <div>
+                        <span className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: colors.textDim }}>Skills 工作流能力</span>
+                        <p className="text-[12px] mt-1" style={{ color: colors.textSecondary }}>定义 Agent 如何拆解任务、调用工具与组织输出。</p>
+                      </div>
+                      <button onClick={() => setAddSkillOpen(!addSkillOpen)} className="flex items-center gap-1 px-2.5 py-1 rounded text-[12px] transition-colors" style={{ backgroundColor: addSkillOpen ? colors.accent : colors.bgTertiary, color: addSkillOpen ? '#fff' : colors.textSecondary, border: `1px solid ${colors.border}` }}>
                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         添加
                       </button>
@@ -1361,32 +1392,32 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
                     {addSkillOpen && (
                       <div className="mb-2 p-2.5 rounded-lg space-y-2" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
                         <div>
-                          <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>类型</label>
-                          <select value={addSkillType} onChange={e => setAddSkillType(e.target.value as any)} className="w-full text-[11px] px-2 py-1 rounded" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}>
+                          <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>类型</label>
+                          <select value={addSkillType} onChange={e => setAddSkillType(e.target.value as any)} className="w-full text-[12px] px-2.5 py-1.5 rounded" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}>
                             <option value="resource">resource（单文件）</option>
                             <option value="directory">directory（目录）</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[10px] mb-0.5" style={{ color: colors.textDim }}>路径</label>
-                          <input value={addSkillPath} onChange={e => setAddSkillPath(e.target.value)} placeholder="classpath:agent/skills/my-skill/reference.md" className="w-full text-[11px] px-2 py-1 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
+                          <label className="block text-[11px] mb-1" style={{ color: colors.textDim }}>路径</label>
+                          <input value={addSkillPath} onChange={e => setAddSkillPath(e.target.value)} placeholder="classpath:agent/skills/my-skill/reference.md" className="w-full text-[12px] px-2.5 py-1.5 rounded outline-none" style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }} />
                         </div>
                         <div className="flex gap-2 pt-1">
-                          <button onClick={handleAddSkill} disabled={!addSkillPath.trim()} className="flex-1 py-1 rounded text-[11px] font-medium transition-colors" style={{ backgroundColor: addSkillPath.trim() ? colors.accent : colors.bgTertiary, color: addSkillPath.trim() ? '#fff' : colors.textDim }}>确认添加</button>
-                          <button onClick={() => setAddSkillOpen(false)} className="px-3 py-1 rounded text-[11px] transition-colors" style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}>取消</button>
+                          <button onClick={handleAddSkill} disabled={!addSkillPath.trim()} className="flex-1 py-1.5 rounded text-[12px] font-medium transition-colors" style={{ backgroundColor: addSkillPath.trim() ? colors.accent : colors.bgTertiary, color: addSkillPath.trim() ? '#fff' : colors.textDim }}>确认添加</button>
+                          <button onClick={() => setAddSkillOpen(false)} className="px-3 py-1.5 rounded text-[12px] transition-colors" style={{ backgroundColor: colors.bgTertiary, color: colors.textSecondary }}>取消</button>
                         </div>
                       </div>
                     )}
 
                     {toolsConfig.skillsList.length === 0 ? (
-                      <p className="text-[11px] px-1" style={{ color: colors.textDim }}>暂无 Skill</p>
+                      <p className="text-[12px] px-1" style={{ color: colors.textDim }}>暂无 Skill</p>
                     ) : (
                       <div className="space-y-1">
                         {toolsConfig.skillsList.map((skill, idx) => (
                           <div key={idx} className="flex items-center justify-between px-2 py-1.5 rounded" style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}>
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium shrink-0" style={{ backgroundColor: `${colors.green}20`, color: colors.green }}>{skill.type}</span>
-                              <p className="text-[11px] truncate font-mono" style={{ color: colors.textSecondary }}>{skill.path}</p>
+                              <span className="text-[11px] px-1.5 py-0.5 rounded font-mono font-medium shrink-0" style={{ backgroundColor: `${colors.green}20`, color: colors.green }}>{skill.type}</span>
+                              <p className="text-[12px] truncate font-mono" style={{ color: colors.textSecondary }}>{skill.path}</p>
                             </div>
                             <button onClick={() => handleDeleteSkill(idx)} className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10 transition-colors" style={{ color: colors.textDim }}>
                               <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -1400,8 +1431,8 @@ export function LeftSidebar({ activeTab }: { activeTab: TabId }) {
 
                 {/* ── 保存按钮 ── */}
                 <div className="px-3 py-2.5 border-t shrink-0" style={{ borderColor: colors.border }}>
-                  <button onClick={handleSaveTools} disabled={toolsSaving} className="w-full py-2 rounded-lg text-[12px] font-medium transition-colors" style={{ backgroundColor: toolsSaveOk ? colors.green : colors.accent, color: '#fff', opacity: toolsSaving ? 0.7 : 1 }}>
-                    {toolsSaving ? '保存中...' : toolsSaveOk ? '✓ 已保存' : '保存配置'}
+                  <button onClick={handleSaveTools} disabled={toolsSaving} className="w-full py-2.5 rounded-xl text-[13px] font-medium transition-colors" style={{ backgroundColor: toolsSaveOk ? colors.green : colors.accent, color: '#fff', opacity: toolsSaving ? 0.7 : 1 }}>
+                    {toolsSaving ? '保存中...' : toolsSaveOk ? '✓ 已保存' : '保存能力组合'}
                   </button>
                 </div>
               </div>

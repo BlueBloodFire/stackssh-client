@@ -233,8 +233,8 @@ export function GitPanel() {
           <circle cx="6" cy="18" r="3" />
           <path d="M18 9a9 9 0 0 1-9 9" />
         </svg>
-        <p className="text-sm mb-1" style={{ color: colors.textSecondary }}>Git 分支管理</p>
-        <p className="text-xs" style={{ color: colors.textDim }}>请先连接 SSH 服务器</p>
+        <p className="text-[15px] mb-1 font-medium" style={{ color: colors.textSecondary }}>AI 协助的 Git 工作台</p>
+        <p className="text-[13px]" style={{ color: colors.textDim }}>请先连接 SSH 服务器</p>
       </div>
     )
   }
@@ -246,10 +246,22 @@ export function GitPanel() {
   }
 
   return (
-    <div className="p-2 space-y-3">
+    <div className="p-3 space-y-3">
+      <div
+        className="rounded-xl px-3.5 py-3"
+        style={{ backgroundColor: colors.bgPrimary, border: `1px solid ${colors.border}` }}
+      >
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <span className="text-[14px] font-semibold" style={{ color: colors.text }}>远程仓库工作台</span>
+        </div>
+        <p className="text-[12px] leading-5" style={{ color: colors.textSecondary }}>
+          这里不是独立 Git 客户端，而是面向远程仓库的协作面板。适合查看分支状态、拉取变更，并让 AI 结合终端上下文给出操作建议。
+        </p>
+      </div>
+
       {/* 仓库路径 */}
       <div>
-        <label className="block text-[10px] mb-1 font-medium uppercase tracking-wider" style={{ color: colors.textDim }}>
+        <label className="block text-[11px] mb-1.5 font-medium uppercase tracking-wider" style={{ color: colors.textDim }}>
           仓库路径
         </label>
         <div className="flex gap-1.5">
@@ -259,13 +271,13 @@ export function GitPanel() {
             onChange={(e) => setRepoPath(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') refresh() }}
             placeholder="/home/user/project"
-            className="flex-1 min-w-0 text-[11px] font-mono px-2 py-1.5 rounded outline-none"
+            className="flex-1 min-w-0 text-[12px] font-mono px-2.5 py-2 rounded outline-none"
             style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}
           />
           <button
             onClick={() => refresh()}
             disabled={loading || !repoPath.trim()}
-            className="px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors disabled:opacity-50 flex-shrink-0"
+            className="px-3 py-2 rounded text-[12px] font-medium transition-colors disabled:opacity-50 flex-shrink-0"
             style={{ backgroundColor: colors.accent, color: '#fff' }}
           >
             {loading ? '加载中' : '加载'}
@@ -274,7 +286,7 @@ export function GitPanel() {
       </div>
 
       {error && (
-        <div className="text-[11px] px-2 py-1.5 rounded" style={{ backgroundColor: `${colors.red}15`, color: colors.red, border: `1px solid ${colors.red}30` }}>
+        <div className="text-[12px] px-2.5 py-2 rounded-xl" style={{ backgroundColor: `${colors.red}15`, color: colors.red, border: `1px solid ${colors.red}30` }}>
           {error}
         </div>
       )}
@@ -290,17 +302,17 @@ export function GitPanel() {
                 <circle cx="6" cy="18" r="3" />
                 <path d="M18 9a9 9 0 0 1-9 9" />
               </svg>
-              <span className="text-[12px] font-semibold font-mono truncate" style={{ color: colors.text }}>{status.branch}</span>
+              <span className="text-[13px] font-semibold font-mono truncate" style={{ color: colors.text }}>{status.branch}</span>
               {(status.ahead > 0 || status.behind > 0) && (
-                <span className="text-[10px] font-mono flex-shrink-0" style={{ color: colors.yellow }}>
+                <span className="text-[11px] font-mono flex-shrink-0" style={{ color: colors.yellow }}>
                   {status.ahead > 0 && `↑${status.ahead}`}{status.behind > 0 && ` ↓${status.behind}`}
                 </span>
               )}
             </div>
             {status.tracking && (
-              <div className="text-[10px] font-mono pl-5 truncate" style={{ color: colors.textDim }}>跟踪 {status.tracking}</div>
+              <div className="text-[11px] font-mono pl-5 truncate" style={{ color: colors.textDim }}>跟踪 {status.tracking}</div>
             )}
-            <div className="flex gap-3 pl-5 text-[10px]" style={{ color: colors.textDim }}>
+            <div className="flex gap-3 pl-5 text-[11px]" style={{ color: colors.textDim }}>
               <span style={{ color: status.staged > 0 ? colors.green : undefined }}>暂存 {status.staged}</span>
               <span style={{ color: status.modified > 0 ? colors.yellow : undefined }}>修改 {status.modified}</span>
               <span style={{ color: status.untracked > 0 ? colors.accent : undefined }}>未跟踪 {status.untracked}</span>
@@ -309,19 +321,19 @@ export function GitPanel() {
 
           {/* 操作按钮 */}
           <div className="grid grid-cols-3 gap-1.5">
-            <button onClick={() => runAction('pull', `git -C "${repoPath.trim()}" pull 2>&1`)} disabled={!!actionLoading} className="py-1.5 rounded text-[11px] transition-colors disabled:opacity-50" style={btnStyle}>
+            <button onClick={() => runAction('pull', `git -C "${repoPath.trim()}" pull 2>&1`)} disabled={!!actionLoading} className="py-2 rounded text-[12px] transition-colors disabled:opacity-50" style={btnStyle}>
               {actionLoading === 'pull' ? '...' : 'Pull'}
             </button>
-            <button onClick={() => runAction('fetch', `git -C "${repoPath.trim()}" fetch --all --prune 2>&1`)} disabled={!!actionLoading} className="py-1.5 rounded text-[11px] transition-colors disabled:opacity-50" style={btnStyle}>
+            <button onClick={() => runAction('fetch', `git -C "${repoPath.trim()}" fetch --all --prune 2>&1`)} disabled={!!actionLoading} className="py-2 rounded text-[12px] transition-colors disabled:opacity-50" style={btnStyle}>
               {actionLoading === 'fetch' ? '...' : 'Fetch'}
             </button>
-            <button onClick={() => refresh()} disabled={loading || !!actionLoading} className="py-1.5 rounded text-[11px] transition-colors disabled:opacity-50" style={btnStyle}>
+            <button onClick={() => refresh()} disabled={loading || !!actionLoading} className="py-2 rounded text-[12px] transition-colors disabled:opacity-50" style={btnStyle}>
               刷新
             </button>
           </div>
 
           {actionOutput && (
-            <pre className="text-[10px] font-mono px-2 py-1.5 rounded overflow-x-auto max-h-32 overflow-y-auto" style={{ backgroundColor: colors.bgPrimary, color: colors.textSecondary, border: `1px solid ${colors.border}`, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+            <pre className="text-[11px] font-mono px-2.5 py-2 rounded-xl overflow-x-auto max-h-32 overflow-y-auto" style={{ backgroundColor: colors.bgPrimary, color: colors.textSecondary, border: `1px solid ${colors.border}`, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
               {actionOutput}
             </pre>
           )}
@@ -329,10 +341,10 @@ export function GitPanel() {
           {/* 分支列表 */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: colors.textDim }}>分支 ({branches.length})</span>
+              <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: colors.textDim }}>分支 ({branches.length})</span>
               <button
                 onClick={() => setNewBranchOpen(!newBranchOpen)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors"
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors"
                 style={{ backgroundColor: newBranchOpen ? colors.accent : 'transparent', color: newBranchOpen ? '#fff' : colors.textSecondary, border: `1px solid ${newBranchOpen ? colors.accent : colors.border}` }}
               >
                 <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
@@ -349,10 +361,10 @@ export function GitPanel() {
                   onChange={(e) => setNewBranchName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleCreateBranch(); if (e.key === 'Escape') setNewBranchOpen(false) }}
                   placeholder="feature/my-branch"
-                  className="flex-1 min-w-0 text-[11px] font-mono px-2 py-1 rounded outline-none"
+                  className="flex-1 min-w-0 text-[12px] font-mono px-2.5 py-1.5 rounded outline-none"
                   style={{ backgroundColor: colors.bgInput, color: colors.text, border: `1px solid ${colors.border}` }}
                 />
-                <button onClick={handleCreateBranch} disabled={!newBranchName.trim()} className="px-2 py-1 rounded text-[10px] font-medium disabled:opacity-50 flex-shrink-0" style={{ backgroundColor: colors.accent, color: '#fff' }}>
+                <button onClick={handleCreateBranch} disabled={!newBranchName.trim()} className="px-3 py-1.5 rounded text-[11px] font-medium disabled:opacity-50 flex-shrink-0" style={{ backgroundColor: colors.accent, color: '#fff' }}>
                   创建
                 </button>
               </div>
@@ -372,11 +384,11 @@ export function GitPanel() {
                     onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = isCurrent ? colors.accentSoft : 'transparent' }}
                   >
                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: isCurrent ? colors.accent : colors.border }} />
-                    <span className="text-[11px] font-mono truncate flex-1" style={{ color: isCurrent ? colors.accent : colors.textSecondary, fontWeight: isCurrent ? 600 : 400 }}>
+                    <span className="text-[12px] font-mono truncate flex-1" style={{ color: isCurrent ? colors.accent : colors.textSecondary, fontWeight: isCurrent ? 600 : 400 }}>
                       {branch}
                     </span>
                     {!isCurrent && (
-                      <span className="text-[9px] opacity-0 group-hover:opacity-100 flex-shrink-0" style={{ color: colors.textDim }}>
+                      <span className="text-[10px] opacity-0 group-hover:opacity-100 flex-shrink-0" style={{ color: colors.textDim }}>
                         {actionLoading === `checkout-${branch}` ? '切换中...' : '切换'}
                       </span>
                     )}
@@ -389,12 +401,12 @@ export function GitPanel() {
           {/* 最近提交 */}
           {commits.length > 0 && (
             <div>
-              <span className="block text-[10px] font-medium uppercase tracking-wider mb-1.5" style={{ color: colors.textDim }}>最近提交</span>
+              <span className="block text-[11px] font-medium uppercase tracking-wider mb-1.5" style={{ color: colors.textDim }}>最近提交</span>
               <div className="space-y-0.5">
                 {commits.map((c) => (
                   <div key={c.hash} className="flex items-baseline gap-2 px-2 py-1 rounded" title={c.message}>
-                    <span className="text-[10px] font-mono flex-shrink-0" style={{ color: colors.accent }}>{c.hash}</span>
-                    <span className="text-[11px] truncate" style={{ color: colors.textSecondary }}>{c.message}</span>
+                    <span className="text-[11px] font-mono flex-shrink-0" style={{ color: colors.accent }}>{c.hash}</span>
+                    <span className="text-[12px] truncate" style={{ color: colors.textSecondary }}>{c.message}</span>
                   </div>
                 ))}
               </div>

@@ -1,0 +1,2225 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="default-gray">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StackSSH Client Prototype Review</title>
+  <style>
+    :root {
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+      --font-sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-mono: "JetBrains Mono", "Consolas", monospace;
+      --page-width: min(1480px, calc(100vw - 40px));
+      --page-bg: #0f141b;
+      --page-overlay-a: rgba(95, 129, 181, 0.2);
+      --page-overlay-b: rgba(49, 72, 98, 0.18);
+      --shell-bg: #11161d;
+      --surface: rgba(23, 29, 38, 0.9);
+      --surface-2: rgba(29, 36, 47, 0.96);
+      --surface-3: rgba(37, 45, 58, 0.9);
+      --surface-strong: #0d131a;
+      --window-bar: #0d1319;
+      --line: rgba(152, 169, 191, 0.18);
+      --line-strong: rgba(152, 169, 191, 0.28);
+      --text: #eef3f8;
+      --text-soft: #c0ccd9;
+      --text-dim: #8b9aad;
+      --text-inverse: #0f141b;
+      --accent: #6aa4ff;
+      --accent-strong: #3b82f6;
+      --accent-soft: rgba(106, 164, 255, 0.16);
+      --accent-subtle: rgba(106, 164, 255, 0.08);
+      --success: #42c46f;
+      --warning: #f0b24d;
+      --danger: #ef6b73;
+      --shadow-lg: 0 24px 52px rgba(5, 9, 14, 0.32);
+      --shadow-md: 0 14px 32px rgba(5, 9, 14, 0.22);
+      --hero-grid: rgba(255, 255, 255, 0.04);
+      --login-bg-a: rgba(89, 116, 162, 0.2);
+      --login-bg-b: rgba(48, 63, 84, 0.1);
+      --login-card-bg: rgba(248, 250, 252, 0.94);
+      --login-card-border: rgba(148, 163, 184, 0.24);
+      --login-text: #111827;
+      --login-soft: #6b7280;
+      --login-input-bg: #ffffff;
+      --login-input-border: #dbe2eb;
+      --chip-text: #d9e8ff;
+      --chip-bg: var(--accent-soft);
+      --code-bg: #0b1117;
+      --code-text: #d9e2ef;
+      --terminal-bg: linear-gradient(180deg, rgba(8, 12, 18, 0.65), rgba(6, 9, 14, 0.96)), #060a0f;
+      --terminal-line: #c8d4e3;
+      --terminal-cmd: #96f1b3;
+      --toolbar-bg: rgba(18, 23, 31, 0.92);
+      --toolbar-button-bg: rgba(27, 33, 43, 0.84);
+      --toolbar-button-active-bg: rgba(106, 164, 255, 0.16);
+      --toolbar-button-active-text: #ffffff;
+      --annotation-bg: rgba(13, 19, 25, 0.96);
+      --annotation-border: rgba(106, 164, 255, 0.3);
+      --annotation-text: #e3efff;
+      --hero-card-bg: rgba(18, 24, 33, 0.9);
+      --hero-card-border: rgba(152, 169, 191, 0.16);
+      --hero-title: #f8fbff;
+      --hero-highlight: linear-gradient(135deg, rgba(106, 164, 255, 0.18), rgba(76, 96, 132, 0.05));
+      --theme-preview-1: #1c232d;
+      --theme-preview-2: #293341;
+      --theme-preview-3: #6aa4ff;
+      --theme-preview-4: #42c46f;
+    }
+
+    html[data-theme="github-light"] {
+      --page-bg: #f6f8fa;
+      --page-overlay-a: rgba(31, 111, 235, 0.09);
+      --page-overlay-b: rgba(9, 105, 218, 0.06);
+      --shell-bg: #ffffff;
+      --surface: rgba(255, 255, 255, 0.95);
+      --surface-2: rgba(246, 248, 250, 0.98);
+      --surface-3: rgba(255, 255, 255, 0.94);
+      --surface-strong: #f6f8fa;
+      --window-bar: #f6f8fa;
+      --line: rgba(31, 35, 40, 0.12);
+      --line-strong: rgba(31, 35, 40, 0.18);
+      --text: #1f2328;
+      --text-soft: #3d4753;
+      --text-dim: #6e7781;
+      --text-inverse: #ffffff;
+      --accent: #0969da;
+      --accent-strong: #0550ae;
+      --accent-soft: rgba(9, 105, 218, 0.12);
+      --accent-subtle: rgba(9, 105, 218, 0.06);
+      --success: #1f883d;
+      --warning: #9a6700;
+      --danger: #cf222e;
+      --shadow-lg: 0 20px 46px rgba(15, 23, 42, 0.08);
+      --shadow-md: 0 12px 24px rgba(15, 23, 42, 0.06);
+      --hero-grid: rgba(15, 23, 42, 0.06);
+      --login-bg-a: rgba(9, 105, 218, 0.08);
+      --login-bg-b: rgba(143, 185, 255, 0.12);
+      --login-card-bg: rgba(255, 255, 255, 0.98);
+      --login-card-border: rgba(31, 35, 40, 0.1);
+      --login-text: #1f2328;
+      --login-soft: #57606a;
+      --login-input-bg: #ffffff;
+      --login-input-border: #d0d7de;
+      --chip-text: #0550ae;
+      --chip-bg: rgba(9, 105, 218, 0.1);
+      --code-bg: #ffffff;
+      --code-text: #24292f;
+      --terminal-bg: linear-gradient(180deg, rgba(248, 250, 252, 0.86), rgba(243, 246, 249, 0.98)), #ffffff;
+      --terminal-line: #334155;
+      --terminal-cmd: #0f7b36;
+      --toolbar-bg: rgba(255, 255, 255, 0.92);
+      --toolbar-button-bg: rgba(246, 248, 250, 0.96);
+      --toolbar-button-active-bg: rgba(9, 105, 218, 0.12);
+      --toolbar-button-active-text: #0f172a;
+      --annotation-bg: rgba(255, 255, 255, 0.98);
+      --annotation-border: rgba(9, 105, 218, 0.28);
+      --annotation-text: #0f172a;
+      --hero-card-bg: rgba(255, 255, 255, 0.92);
+      --hero-card-border: rgba(31, 35, 40, 0.08);
+      --hero-title: #0f172a;
+      --hero-highlight: linear-gradient(135deg, rgba(9, 105, 218, 0.08), rgba(255, 255, 255, 0.04));
+      --theme-preview-1: #ffffff;
+      --theme-preview-2: #f6f8fa;
+      --theme-preview-3: #0969da;
+      --theme-preview-4: #1f883d;
+    }
+
+    html[data-theme="github-dark"] {
+      --page-bg: #0d1117;
+      --page-overlay-a: rgba(31, 111, 235, 0.16);
+      --page-overlay-b: rgba(56, 139, 253, 0.08);
+      --shell-bg: #0d1117;
+      --surface: rgba(22, 27, 34, 0.94);
+      --surface-2: rgba(33, 38, 45, 0.96);
+      --surface-3: rgba(22, 27, 34, 0.88);
+      --surface-strong: #161b22;
+      --window-bar: #161b22;
+      --line: rgba(139, 148, 158, 0.24);
+      --line-strong: rgba(139, 148, 158, 0.34);
+      --text: #e6edf3;
+      --text-soft: #c4d1dc;
+      --text-dim: #8b949e;
+      --text-inverse: #0d1117;
+      --accent: #58a6ff;
+      --accent-strong: #1f6feb;
+      --accent-soft: rgba(88, 166, 255, 0.14);
+      --accent-subtle: rgba(88, 166, 255, 0.08);
+      --success: #3fb950;
+      --warning: #d29922;
+      --danger: #f85149;
+      --shadow-lg: 0 24px 52px rgba(1, 4, 9, 0.36);
+      --shadow-md: 0 12px 28px rgba(1, 4, 9, 0.28);
+      --hero-grid: rgba(230, 237, 243, 0.04);
+      --login-bg-a: rgba(31, 111, 235, 0.12);
+      --login-bg-b: rgba(56, 139, 253, 0.08);
+      --login-card-bg: rgba(22, 27, 34, 0.96);
+      --login-card-border: rgba(139, 148, 158, 0.2);
+      --login-text: #e6edf3;
+      --login-soft: #8b949e;
+      --login-input-bg: #0d1117;
+      --login-input-border: #30363d;
+      --chip-text: #cfe5ff;
+      --chip-bg: rgba(88, 166, 255, 0.12);
+      --code-bg: #0d1117;
+      --code-text: #e6edf3;
+      --terminal-bg: linear-gradient(180deg, rgba(13, 17, 23, 0.5), rgba(1, 4, 9, 0.96)), #010409;
+      --terminal-line: #c9d1d9;
+      --terminal-cmd: #7ee787;
+      --toolbar-bg: rgba(13, 17, 23, 0.94);
+      --toolbar-button-bg: rgba(22, 27, 34, 0.9);
+      --toolbar-button-active-bg: rgba(88, 166, 255, 0.16);
+      --toolbar-button-active-text: #ffffff;
+      --annotation-bg: rgba(13, 17, 23, 0.98);
+      --annotation-border: rgba(88, 166, 255, 0.28);
+      --annotation-text: #dcecff;
+      --hero-card-bg: rgba(13, 17, 23, 0.92);
+      --hero-card-border: rgba(139, 148, 158, 0.14);
+      --hero-title: #f0f6fc;
+      --hero-highlight: linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(13, 17, 23, 0.04));
+      --theme-preview-1: #0d1117;
+      --theme-preview-2: #161b22;
+      --theme-preview-3: #58a6ff;
+      --theme-preview-4: #3fb950;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, var(--page-overlay-a), transparent 28%),
+        radial-gradient(circle at top right, var(--page-overlay-b), transparent 22%),
+        linear-gradient(180deg, color-mix(in srgb, var(--page-bg) 92%, #ffffff 8%) 0%, var(--page-bg) 100%);
+      transition: background 220ms ease, color 220ms ease;
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .page {
+      width: var(--page-width);
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+
+    .card {
+      background: var(--hero-card-bg);
+      border: 1px solid var(--hero-card-border);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(12px);
+      transition: background 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+    }
+
+    .hero-main {
+      position: relative;
+      padding: 30px;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.04), transparent 35%),
+        linear-gradient(0deg, transparent, transparent),
+        var(--hero-highlight);
+    }
+
+    .hero-main::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--hero-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--hero-grid) 1px, transparent 1px);
+      background-size: 24px 24px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,0.22), transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-side {
+      padding: 24px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 13px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    h1 {
+      position: relative;
+      margin: 16px 0 12px;
+      font-size: 40px;
+      line-height: 1.05;
+      color: var(--hero-title);
+    }
+
+    .hero p,
+    .muted {
+      color: var(--text-dim);
+      line-height: 1.72;
+    }
+
+    .summary {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .summary .mini {
+      padding: 14px;
+      border-radius: var(--radius-md);
+      background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow-md);
+    }
+
+    .mini strong {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+
+    .checklist {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text-dim);
+      line-height: 1.72;
+      font-size: 15px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 0 0 18px;
+      padding: 14px;
+      background: var(--toolbar-bg);
+      border-color: var(--line);
+      border-radius: 18px;
+      position: sticky;
+      top: 12px;
+      z-index: 5;
+      box-shadow: var(--shadow-md);
+    }
+
+    .toolbar-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .toolbar-spacer {
+      flex: 1;
+      min-width: 12px;
+    }
+
+    .toolbar button,
+    .theme-chip {
+      border: 1px solid var(--line);
+      background: var(--toolbar-button-bg);
+      color: var(--text-dim);
+      padding: 10px 14px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: 0.18s ease;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+    }
+
+    .toolbar button:hover,
+    .theme-chip:hover,
+    .settings-theme-card:hover {
+      border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+      transform: translateY(-1px);
+    }
+
+    .toolbar button.active,
+    .theme-chip.active {
+      color: var(--toolbar-button-active-text);
+      border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+      background: var(--toolbar-button-active-bg);
+      box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
+    }
+
+    .theme-switch {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 6px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-2) 84%, transparent);
+    }
+
+    .theme-switch-label {
+      padding: 0 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-soft);
+    }
+
+    .theme-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      min-height: 40px;
+    }
+
+    .theme-dot-group {
+      display: inline-flex;
+      gap: 4px;
+    }
+
+    .theme-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: var(--theme-preview-1);
+    }
+
+    .theme-chip .theme-dot:nth-child(1) { background: var(--theme-preview-1); }
+    .theme-chip .theme-dot:nth-child(2) { background: var(--theme-preview-2); }
+    .theme-chip .theme-dot:nth-child(3) { background: var(--theme-preview-3); }
+
+    .screen {
+      display: none;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .screen.active {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+    }
+
+    .panel {
+      padding: 18px;
+    }
+
+    .side-note h3,
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: 19px;
+      color: var(--text);
+    }
+
+    .side-note ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text-dim);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    .prototype-shell {
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--shell-bg);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .window-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--window-bar);
+      border-bottom: 1px solid var(--line);
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .window-dots span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .dot-r { background: #fb7185; }
+    .dot-y { background: #fbbf24; }
+    .dot-g { background: #34d399; }
+
+    .login-stage {
+      min-height: 760px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(circle at top left, var(--login-bg-a), transparent 28%),
+        radial-gradient(circle at bottom right, var(--login-bg-b), transparent 22%),
+        linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 60%, #ffffff 40%) 0%, color-mix(in srgb, var(--surface-strong) 72%, #ffffff 28%) 100%);
+      padding: 40px;
+    }
+
+    .login-card {
+      width: 410px;
+      background: var(--login-card-bg);
+      color: var(--login-text);
+      border-radius: 28px;
+      border: 1px solid var(--login-card-border);
+      box-shadow: 0 24px 50px rgba(15, 23, 42, 0.12);
+      padding: 30px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.22), transparent 40%);
+      pointer-events: none;
+    }
+
+    .logo-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 18px;
+      position: relative;
+    }
+
+    .logo-box {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 30%, transparent);
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      background: color-mix(in srgb, var(--accent) 5%, var(--login-card-bg));
+      border-radius: 15px;
+      padding: 5px;
+      margin: 18px 0;
+      border: 1px solid color-mix(in srgb, var(--login-input-border) 86%, transparent);
+    }
+
+    .segmented span {
+      text-align: center;
+      padding: 11px 0;
+      border-radius: 10px;
+      font-size: 15px;
+      color: var(--login-soft);
+    }
+
+    .segmented .on {
+      background: color-mix(in srgb, var(--accent) 10%, #ffffff 90%);
+      color: var(--login-text);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      font-weight: 700;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 13px;
+      color: var(--login-soft);
+      font-weight: 700;
+    }
+
+    .field div {
+      width: 100%;
+      height: 46px;
+      border-radius: 13px;
+      border: 1px solid var(--login-input-border);
+      background: var(--login-input-bg);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      color: color-mix(in srgb, var(--login-soft) 84%, #ffffff 16%);
+      font-size: 15px;
+    }
+
+    .primary-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 48px;
+      border-radius: 13px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #fff;
+      font-size: 15px;
+      font-weight: 800;
+      box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+
+    .app-frame {
+      display: grid;
+      grid-template-columns: 52px 290px minmax(0, 1fr) 372px;
+      min-height: 760px;
+      background: var(--surface-strong);
+    }
+
+    .activity {
+      background: var(--surface-2);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0;
+      gap: 8px;
+    }
+
+    .activity .item {
+      width: 40px;
+      height: 40px;
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      color: var(--text-dim);
+      font-size: 12px;
+      border-left: 2px solid transparent;
+      transition: 0.18s ease;
+    }
+
+    .activity .item.active {
+      background: var(--accent-soft);
+      color: var(--text);
+      border-left-color: var(--accent);
+    }
+
+    .sidebar,
+    .right-column {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .right-column {
+      border-right: none;
+      border-left: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 85%, var(--surface-2) 15%);
+    }
+
+    .sidebar-head,
+    .right-head,
+    .center-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+    }
+
+    .head-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: var(--text-soft);
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-3) 82%, transparent);
+    }
+
+    .list {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    .conn,
+    .file-item,
+    .branch-item,
+    .tool-row,
+    .message,
+    .react-box,
+    .settings-theme-card {
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+      box-shadow: var(--shadow-md);
+    }
+
+    .conn,
+    .file-item,
+    .branch-item {
+      padding: 12px;
+    }
+
+    .conn strong,
+    .file-item strong,
+    .branch-item strong {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+
+    .conn small,
+    .file-item small,
+    .branch-item small,
+    .tool-row small {
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      margin-top: 10px;
+      color: var(--text-soft);
+    }
+
+    .status::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--success);
+    }
+
+    .center {
+      background: var(--surface-strong);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 80%, var(--surface-strong) 20%);
+      overflow: hidden;
+    }
+
+    .tab {
+      padding: 9px 13px;
+      border-radius: 11px;
+      font-size: 13px;
+      color: var(--text-dim);
+      border: 1px solid transparent;
+      background: transparent;
+    }
+
+    .tab.active {
+      color: var(--text);
+      border-color: var(--line);
+      background: color-mix(in srgb, var(--surface-3) 82%, transparent);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .terminal {
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 290px;
+      min-height: 0;
+    }
+
+    .terminal-main {
+      padding: 14px;
+      background: var(--terminal-bg);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.72;
+      color: var(--code-text);
+    }
+
+    .terminal-main .line {
+      color: var(--terminal-line);
+    }
+
+    .terminal-main .cmd {
+      color: var(--terminal-cmd);
+    }
+
+    .terminal-side {
+      border-left: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 88%, var(--surface-2) 12%);
+      padding: 12px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      color: var(--text);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: var(--chip-bg);
+      color: var(--chip-text);
+      border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+      font-size: 12px;
+      margin: 0 8px 8px 0;
+    }
+
+    .command-card,
+    .kb-item,
+    .recent-item {
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-2) 76%, transparent);
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: var(--text);
+      box-shadow: var(--shadow-md);
+    }
+
+    .workspace-columns {
+      display: grid;
+      grid-template-columns: 290px minmax(0, 1fr);
+      min-height: 760px;
+      background: var(--surface-strong);
+    }
+
+    .editor-wrap {
+      display: flex;
+      flex-direction: column;
+      background: var(--surface-strong);
+      min-width: 0;
+    }
+
+    .editor-toolbar {
+      padding: 10px 14px;
+      background: color-mix(in srgb, var(--surface) 82%, var(--surface-strong) 18%);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .editor {
+      flex: 1;
+      padding: 14px 18px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.75;
+      white-space: pre;
+      overflow: hidden;
+      color: var(--code-text);
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent) 1px, transparent 1px) 54px 0 / 1px 100% no-repeat,
+        var(--code-bg);
+    }
+
+    .editor .ln {
+      color: var(--text-dim);
+      display: inline-block;
+      width: 36px;
+      user-select: none;
+    }
+
+    .editor .hl {
+      background: var(--accent-soft);
+      display: inline-block;
+      width: calc(100% - 36px);
+      border-radius: 6px;
+    }
+
+    .split-panel {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 220px;
+    }
+
+    .split-panel .terminal-inline {
+      border-top: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-strong) 92%, #000 8%);
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--terminal-line);
+    }
+
+    .git-layout {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      min-height: 760px;
+      background: var(--surface-strong);
+    }
+
+    .git-left,
+    .git-right {
+      padding: 16px;
+    }
+
+    .git-left {
+      border-right: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 92%, var(--surface-strong) 8%);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .stats .mini {
+      padding: 12px;
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+      border: 1px solid var(--line);
+      text-align: center;
+      box-shadow: var(--shadow-md);
+    }
+
+    .stats strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 18px;
+      color: var(--text);
+    }
+
+    .extensions-layout,
+    .settings-layout {
+      min-height: 760px;
+      background: var(--surface-strong);
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr);
+    }
+
+    .ext-left,
+    .settings-nav {
+      border-right: 1px solid var(--line);
+      padding: 16px;
+      background: color-mix(in srgb, var(--surface) 92%, var(--surface-strong) 8%);
+    }
+
+    .ext-right,
+    .settings-body {
+      padding: 18px;
+      background: color-mix(in srgb, var(--surface-strong) 84%, var(--surface) 16%);
+    }
+
+    .tool-row,
+    .settings-row {
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+
+    .settings-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+      background: transparent;
+      border: 1px solid transparent;
+    }
+
+    .settings-menu-item.active {
+      color: var(--text);
+      border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+      background: var(--accent-soft);
+    }
+
+    .settings-theme-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .settings-theme-card {
+      padding: 16px;
+      cursor: pointer;
+      transition: 0.18s ease;
+      background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+    }
+
+    .settings-theme-card.active {
+      border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+      box-shadow: 0 14px 26px color-mix(in srgb, var(--accent) 14%, transparent);
+      background: color-mix(in srgb, var(--accent-soft) 46%, var(--surface-2) 54%);
+    }
+
+    .theme-preview {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .theme-preview-swatches {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .theme-preview-swatches span {
+      width: 18px;
+      height: 18px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.14);
+    }
+
+    .theme-preview-mini {
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      overflow: hidden;
+      background: var(--surface-strong);
+      min-height: 70px;
+    }
+
+    .theme-preview-mini .bar {
+      height: 12px;
+      background: var(--theme-preview-2);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .theme-preview-mini .body {
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      min-height: 58px;
+    }
+
+    .theme-preview-mini .body span:nth-child(1) {
+      background: var(--theme-preview-2);
+      border-right: 1px solid var(--line);
+    }
+
+    .theme-preview-mini .body span:nth-child(2) {
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--theme-preview-3) 16%, transparent), transparent 42%),
+        var(--theme-preview-1);
+    }
+
+    .message-list {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top right, var(--accent-subtle), transparent 22%),
+        color-mix(in srgb, var(--surface-strong) 90%, var(--surface) 10%);
+    }
+
+    .message {
+      padding: 15px;
+      color: var(--text);
+    }
+
+    .message.user {
+      margin-left: 76px;
+      max-width: calc(100% - 76px);
+      background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface-2) 42%);
+      border-color: color-mix(in srgb, var(--accent) 18%, var(--line));
+    }
+
+    .react-box {
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+    }
+
+    .ai-summary {
+      padding: 14px 16px 0;
+      display: grid;
+      gap: 12px;
+      background: color-mix(in srgb, var(--surface) 92%, var(--surface-2) 8%);
+    }
+
+    .ai-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .ai-summary-card {
+      padding: 12px 13px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+      box-shadow: var(--shadow-md);
+    }
+
+    .ai-summary-card strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: var(--text-soft);
+      letter-spacing: 0.02em;
+    }
+
+    .ai-summary-card span {
+      display: block;
+      font-size: 14px;
+      line-height: 1.45;
+      color: var(--text);
+    }
+
+    .ai-control-bar,
+    .context-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .context-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+      background: color-mix(in srgb, var(--accent-soft) 34%, var(--surface-2) 66%);
+      color: var(--text-soft);
+      font-size: 12px;
+    }
+
+    .context-chip strong {
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .codex-thread {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message.ai {
+      padding: 0;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .ai-response {
+      padding: 4px 0 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .codex-step {
+      position: relative;
+      padding: 13px 14px 13px 18px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+      box-shadow: var(--shadow-md);
+    }
+
+    .codex-step::before {
+      content: "";
+      position: absolute;
+      top: 12px;
+      bottom: 12px;
+      left: 9px;
+      width: 2px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 38%, transparent);
+    }
+
+    .codex-step-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .codex-step-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .codex-step-body {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--text-soft);
+    }
+
+    .codex-step pre {
+      margin: 10px 0 0;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface-strong) 88%, transparent);
+      border: 1px solid var(--line);
+      color: var(--code-text);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .codex-result {
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line));
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 34%, transparent), transparent 58%),
+        color-mix(in srgb, var(--surface-2) 86%, transparent);
+      box-shadow: var(--shadow-md);
+    }
+
+    .codex-result h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .codex-result p,
+    .codex-result ul {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-soft);
+    }
+
+    .codex-result ul {
+      padding-left: 18px;
+      margin-top: 8px;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 14px;
+      background: color-mix(in srgb, var(--surface) 90%, var(--surface-2) 10%);
+    }
+
+    .composer-box {
+      min-height: 154px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+      padding: 15px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .annotation {
+      position: absolute;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .annotation .pin {
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 800;
+      box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 24%, transparent);
+    }
+
+    .annotation .label {
+      padding: 9px 11px;
+      border-radius: 13px;
+      background: var(--annotation-bg);
+      border: 1px solid var(--annotation-border);
+      font-size: 13px;
+      color: var(--annotation-text);
+      max-width: 252px;
+      line-height: 1.5;
+      box-shadow: var(--shadow-md);
+    }
+
+    .stage {
+      position: relative;
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      border: 1px solid var(--line);
+      color: var(--text-dim);
+      font-size: 15px;
+      line-height: 1.7;
+      box-shadow: var(--shadow-md);
+    }
+
+    @media (max-width: 1220px) {
+      .hero,
+      .screen.active {
+        grid-template-columns: 1fr;
+      }
+
+      .toolbar {
+        position: static;
+      }
+
+      .app-frame {
+        grid-template-columns: 52px 260px minmax(0, 1fr);
+      }
+
+      .app-frame .right-column {
+        display: none;
+      }
+    }
+
+    @media (max-width: 980px) {
+      .summary,
+      .settings-theme-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace-columns,
+      .git-layout,
+      .extensions-layout,
+      .settings-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="card hero-main">
+        <div class="badge">基于真实代码结构的快速视觉评审原型</div>
+        <h1>StackSSH Client 界面方案</h1>
+        <p>
+          这版原型的目标不是解释功能，而是快速比较产品气质。你可以直接切换主题，观察登录、工作台、文件、Git、Extensions、设置这些核心画面在不同风格下的层级、对比和品牌感。
+        </p>
+        <div class="summary">
+          <div class="mini">
+            <strong>3 套主题</strong>
+            <span class="muted">默认灰色、GitHub 白、GitHub 黑，方便横向评审。</span>
+          </div>
+          <div class="mini">
+            <strong>6 个主屏</strong>
+            <span class="muted">登录、工作台、文件、Git、Extensions、设置全部同步换肤。</span>
+          </div>
+          <div class="mini">
+            <strong>双入口切换</strong>
+            <span class="muted">顶部全局切换和设置页内切换都可用，符合产品预览和评审两种场景。</span>
+          </div>
+        </div>
+      </div>
+      <div class="card hero-side">
+        <h3>这轮重点看什么</h3>
+        <ul class="checklist">
+          <li>默认灰色是不是足够像桌面开发工具，而不是普通后台。</li>
+          <li>GitHub 白主题是否够干净，但不会失去专业工具感。</li>
+          <li>GitHub 黑主题是否让终端、AI 和文件区的层级更稳定。</li>
+          <li>右侧 AI 面板是否足够突出，还是还要继续强化。</li>
+          <li>哪个主题最适合作为后续 React 页面改造的主方向。</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="card toolbar" id="toolbar">
+      <div class="toolbar-group">
+        <button class="active" data-screen="login">登录页</button>
+        <button data-screen="workspace">主工作台</button>
+        <button data-screen="files">文件编辑</button>
+        <button data-screen="git">Git 面板</button>
+        <button data-screen="extensions">Extensions</button>
+        <button data-screen="settings">设置</button>
+      </div>
+      <div class="toolbar-spacer"></div>
+      <div class="theme-switch" aria-label="全局主题切换">
+        <span class="theme-switch-label">主题</span>
+        <button class="theme-chip active" data-theme-choice="default-gray">
+          <span class="theme-dot-group"><span class="theme-dot"></span><span class="theme-dot"></span><span class="theme-dot"></span></span>
+          默认灰色
+        </button>
+        <button class="theme-chip" data-theme-choice="github-light">
+          <span class="theme-dot-group"><span class="theme-dot"></span><span class="theme-dot"></span><span class="theme-dot"></span></span>
+          GitHub 白
+        </button>
+        <button class="theme-chip" data-theme-choice="github-dark">
+          <span class="theme-dot-group"><span class="theme-dot"></span><span class="theme-dot"></span><span class="theme-dot"></span></span>
+          GitHub 黑
+        </button>
+      </div>
+    </div>
+
+    <section class="screen active" id="screen-login">
+      <div class="panel card">
+        <h2>登录页原型</h2>
+        <div class="prototype-shell stage">
+          <div class="window-bar">
+            <div class="window-dots">
+              <span class="dot-r"></span>
+              <span class="dot-y"></span>
+              <span class="dot-g"></span>
+            </div>
+            <span>LoginView.tsx</span>
+            <span>Account onboarding</span>
+          </div>
+          <div class="login-stage">
+            <div class="login-card">
+              <div class="logo-row">
+                <div class="logo-box">&gt;_</div>
+                <div>
+                  <div style="font-size: 22px; font-weight: 800;">StackSSH</div>
+                  <div style="font-size: 15px; color: var(--login-soft); margin-top: 4px;">AI SSH 智能终端与远程执行工作台</div>
+                </div>
+              </div>
+              <div class="segmented">
+                <span class="on">登录</span>
+                <span>注册</span>
+              </div>
+              <div class="field">
+                <label>用户名</label>
+                <div>请输入用户名</div>
+              </div>
+              <div class="field">
+                <label>密码</label>
+                <div>请输入密码</div>
+              </div>
+              <div style="background: color-mix(in srgb, var(--danger) 10%, var(--login-card-bg)); border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent); color: var(--danger); padding: 11px 13px; border-radius: 12px; font-size: 13px; margin-bottom: 14px;">
+                这里展示登录失败、JWT 过期或服务端无法连接等提示，同时保持更像专业运维工具的入口气质。
+              </div>
+              <div class="primary-btn">登录</div>
+              <div style="text-align:center; font-size:13px; color: var(--login-soft); margin-top:16px;">
+                没有账号？ <span style="color: var(--accent-strong); font-weight:800;">立即注册</span>
+              </div>
+            </div>
+          </div>
+          <div class="annotation" style="top: 112px; left: 56px;">
+            <div class="pin">1</div>
+            <div class="label">这块最适合决定品牌调性。现在更像专业工具登录，而不是普通表单。</div>
+          </div>
+          <div class="annotation" style="top: 286px; right: 60px;">
+            <div class="pin">2</div>
+            <div class="label">登录 / 注册仍保留同页切换，但主题变化会明显影响“产品偏开发工具还是偏 SaaS”。</div>
+          </div>
+        </div>
+      </div>
+      <aside class="card panel side-note">
+        <h3>当前实现特征</h3>
+        <ul>
+          <li>单页登录 / 注册切换，适合保持轻量入口。</li>
+          <li>这轮只改视觉，不改字段结构和登录流程。</li>
+          <li>错误态、按钮和 Logo 会跟着主题整体换肤。</li>
+        </ul>
+        <h3 style="margin-top:18px;">评审建议</h3>
+        <ul>
+          <li>观察哪个主题下品牌感最好。</li>
+          <li>确认是否还要增加服务端地址或快速连接入口。</li>
+          <li>决定正式页面是否沿用这种更“工具产品”的登录气质。</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="screen" id="screen-workspace">
+      <div class="panel card">
+        <h2>主工作台原型</h2>
+        <div class="prototype-shell stage">
+          <div class="window-bar">
+            <div class="window-dots">
+              <span class="dot-r"></span>
+              <span class="dot-y"></span>
+              <span class="dot-g"></span>
+            </div>
+            <span>MainView.tsx</span>
+            <span>Servers tab</span>
+          </div>
+          <div class="app-frame">
+            <div class="activity">
+              <div class="item active">SSH</div>
+              <div class="item">文件</div>
+              <div class="item">SFTP</div>
+              <div class="item">Git</div>
+              <div class="item">Ext</div>
+              <div style="flex:1;"></div>
+              <div class="item">设</div>
+            </div>
+            <div class="sidebar">
+              <div class="sidebar-head">
+                <div class="head-row">
+                  <span class="title">SSH 服务器</span>
+                  <span class="pill">+ 添加连接</span>
+                </div>
+              </div>
+              <div class="list">
+                <div class="conn">
+                  <strong>prod-app-01</strong>
+                  <small>ubuntu@10.0.0.12:22</small>
+                  <div class="status">已连接</div>
+                </div>
+                <div class="conn">
+                  <strong>staging-api</strong>
+                  <small>deploy@10.0.0.31:22</small>
+                  <div class="status" style="color:var(--warning);">连接中</div>
+                </div>
+                <div class="conn">
+                  <strong>db-master</strong>
+                  <small>root@10.0.0.80:22</small>
+                  <div class="status" style="color:var(--danger);">连接失败</div>
+                </div>
+              </div>
+            </div>
+            <div class="center">
+              <div class="center-head">
+                <div class="head-row">
+                  <div>
+                    <div class="title">已连接服务器: prod-app-01</div>
+                    <div class="muted" style="font-size:12px;">ubuntu@10.0.0.12:22</div>
+                  </div>
+                  <div style="display:flex; gap:8px;">
+                    <span class="pill" style="background: var(--accent-soft); color: var(--accent);">终端</span>
+                    <span class="pill">AI 助手</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tabs">
+                <div class="tab active">终端 1</div>
+                <div class="tab">终端 2</div>
+                <div class="tab">终端 3</div>
+              </div>
+              <div class="terminal">
+                <div class="terminal-main">
+                  <div class="line">Last login: Sun Jun 30 21:14:02 on pts/0</div>
+                  <div class="cmd">ubuntu@prod-app-01:~$ docker ps</div>
+                  <div class="line">CONTAINER ID   IMAGE                 STATUS</div>
+                  <div class="line">91c0c71b8bd3   stackssh-server:dev   Up 4 hours</div>
+                  <div class="line">ab74d2c89f10   postgres:16           Up 12 hours</div>
+                  <div class="cmd">ubuntu@prod-app-01:~$ tail -f /var/log/nginx/access.log</div>
+                  <div class="line">10.0.0.22 - - [30/Jun/2026:23:08:41 +0800] "GET /api/v1/agent"</div>
+                  <div class="line">10.0.0.23 - - [30/Jun/2026:23:08:43 +0800] "POST /api/v1/terminal"</div>
+                  <div class="cmd">ubuntu@prod-app-01:~$</div>
+                </div>
+                <div class="terminal-side">
+                  <div class="section-title">
+                    <span>命令与历史面板</span>
+                    <span class="pill">Ctrl+F</span>
+                  </div>
+                  <div class="chip">系统监控</div>
+                  <div class="chip">Docker</div>
+                  <div class="chip">日志</div>
+                  <div class="command-card">
+                    <strong style="display:block; font-size:12px;">最近命令</strong>
+                    <div class="muted">docker logs -f stackssh-server</div>
+                  </div>
+                  <div class="command-card">
+                    <strong style="display:block; font-size:12px;">危险命令检测</strong>
+                    <div class="muted">发送前调用 `/check-command`，高风险命令需要确认。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="right-column">
+              <div class="right-head">
+                <div class="head-row">
+                  <span class="title">AI 任务中心</span>
+                  <span class="pill">Codex-style flow</span>
+                </div>
+              </div>
+              <div class="ai-summary">
+                <div class="ai-summary-grid">
+                  <div class="ai-summary-card">
+                    <strong>当前会话</strong>
+                    <span>排查 stackssh-server 连接失败</span>
+                  </div>
+                  <div class="ai-summary-card">
+                    <strong>绑定连接</strong>
+                    <span>prod-app-01 · ubuntu@10.0.0.12</span>
+                  </div>
+                  <div class="ai-summary-card">
+                    <strong>执行模型</strong>
+                    <span>GPT-4.1，保留 DeepSeek / Qwen 快切</span>
+                  </div>
+                  <div class="ai-summary-card">
+                    <strong>上下文状态</strong>
+                    <span>2 个文件 + 1 个目录 + 终端实时输出</span>
+                  </div>
+                </div>
+                <div class="ai-control-bar">
+                  <span class="pill" style="background: var(--accent-soft); color: var(--accent);">新建会话</span>
+                  <span class="pill">模型配置</span>
+                  <span class="pill">历史记录</span>
+                  <span class="pill">上下文管理</span>
+                </div>
+                <div class="context-strip">
+                  <span class="context-chip"><strong>文件</strong> request.ts</span>
+                  <span class="context-chip"><strong>目录</strong> /var/www/app</span>
+                  <span class="context-chip"><strong>终端</strong> tail -f access.log</span>
+                  <span class="context-chip"><strong>RAG</strong> deploy-guide.md</span>
+                </div>
+              </div>
+              <div class="message-list">
+                <div class="message user">
+                  帮我定位 stackssh-server 连接失败的原因，并给出最短修复路径。优先使用当前终端与 request.ts 的上下文。
+                </div>
+                <div class="message ai">
+                  <div class="codex-thread">
+                    <div class="codex-step">
+                      <div class="codex-step-meta">
+                        <span class="codex-step-title">Thinking</span>
+                        <span>Step 1 · 2s ago</span>
+                      </div>
+                      <div class="codex-step-body">
+                        先对齐当前连接状态、最近终端输出和认证路径，判断是服务端未启动、端口不可达，还是 JWT 没有正确透传。
+                      </div>
+                    </div>
+                    <div class="codex-step">
+                      <div class="codex-step-meta">
+                        <span class="codex-step-title">Tool Call</span>
+                        <span>ssh.exec</span>
+                      </div>
+                      <div class="codex-step-body">
+                        读取进程与端口占用，确认 8091 是否正常监听，并对比最近一次 `/api/v1/agent` 请求响应。
+                      </div>
+                      <pre>ps aux | grep stackssh-server
+ss -lntp | grep 8091
+tail -n 80 /var/log/stackssh/server.log</pre>
+                    </div>
+                    <div class="codex-step">
+                      <div class="codex-step-meta">
+                        <span class="codex-step-title">Tool Result</span>
+                        <span>summary</span>
+                      </div>
+                      <div class="codex-step-body">
+                        服务正常运行，但 SSE 与文件下载请求缺少 JWT，导致接口返回 403。终端连接本身没有问题，主要是认证透传断在前端请求层。
+                      </div>
+                    </div>
+                    <div class="codex-result">
+                      <h4>Recommended next action</h4>
+                      <p>优先检查 `request.ts` 与裸 `fetch` 调用的认证 header，一次修完 SSE、下载和设置页测试链路。</p>
+                      <ul>
+                        <li>补齐 `Authorization: Bearer &lt;token&gt;` header。</li>
+                        <li>确认文件下载走 query token 或受控 fetch。</li>
+                        <li>修完后重新建立 SSH 会话并复测连接状态。</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="composer">
+                <div class="composer-box">
+                  <div class="context-strip" style="margin-bottom: 12px;">
+                    <span class="context-chip"><strong>命令历史</strong> docker logs -f</span>
+                    <span class="context-chip"><strong>MCP</strong> filesystem-server</span>
+                    <span class="context-chip"><strong>Skill</strong> ops-helper</span>
+                  </div>
+                  <div class="muted" style="font-size: 14px;">向 StackSSH 提问，或要求它读取终端、文件、RAG 文档并继续推进任务。（Enter 发送）</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="annotation" style="top: 130px; left: 52px;">
+            <div class="pin">1</div>
+            <div class="label">左侧信息入口仍然很多，这版重点是让导航、主区和 AI 有更清楚的主次层级。</div>
+          </div>
+          <div class="annotation" style="top: 194px; left: 428px;">
+            <div class="pin">2</div>
+            <div class="label">终端仍是主战场，但现在标签、工具入口和主区域的边界更稳定。</div>
+          </div>
+          <div class="annotation" style="top: 232px; right: 46px;">
+            <div class="pin">3</div>
+            <div class="label">右侧 AI 面板是产品差异化核心，建议重点比较三主题下它的存在感。</div>
+          </div>
+        </div>
+      </div>
+      <aside class="card panel side-note">
+        <h3>这屏重点变化</h3>
+        <ul>
+          <li>强化了中心工作区和侧栏的对比，不再只是同一层灰块。</li>
+          <li>AI 面板与终端共享一套主题语言，但保留独立面板感。</li>
+          <li>顶部工具栏切换主题时，这屏最能体现最终产品气质差异。</li>
+        </ul>
+        <h3 style="margin-top:18px;">建议你回来先看</h3>
+        <ul>
+          <li>默认灰色是否最适合正式版。</li>
+          <li>GitHub 白会不会太“网页化”。</li>
+          <li>GitHub 黑是否比默认灰色更适合长期工作场景。</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="screen" id="screen-files">
+      <div class="panel card">
+        <h2>文件编辑与分屏原型</h2>
+        <div class="prototype-shell stage">
+          <div class="window-bar">
+            <div class="window-dots">
+              <span class="dot-r"></span>
+              <span class="dot-y"></span>
+              <span class="dot-g"></span>
+            </div>
+            <span>FileWorkspace.tsx + LeftSidebar.tsx</span>
+            <span>Files tab / Split horizontal</span>
+          </div>
+          <div class="workspace-columns">
+            <div class="sidebar">
+              <div class="sidebar-head">
+                <div class="head-row">
+                  <span class="title">远程文件</span>
+                  <span class="pill">刷新</span>
+                </div>
+              </div>
+              <div class="list">
+                <div class="file-item">
+                  <strong>/srv/stackssh</strong>
+                  <small>当前路径</small>
+                </div>
+                <div class="file-item">
+                  <strong>src/</strong>
+                  <small>目录</small>
+                </div>
+                <div class="file-item" style="background: var(--accent-soft);">
+                  <strong>api/request.ts</strong>
+                  <small>7.2 KB · 已打开</small>
+                </div>
+                <div class="file-item">
+                  <strong>components/RightSidebar.tsx</strong>
+                  <small>18.4 KB</small>
+                </div>
+                <div class="file-item">
+                  <strong>package.json</strong>
+                  <small>1.0 KB</small>
+                </div>
+              </div>
+            </div>
+            <div class="editor-wrap split-panel">
+              <div style="display:flex; flex-direction:column; min-height:0;">
+                <div class="tabs">
+                  <div class="tab">终端</div>
+                  <div class="tab active">request.ts</div>
+                  <div class="tab">RightSidebar.tsx</div>
+                  <div class="tab">package.json</div>
+                </div>
+                <div class="editor-toolbar">
+                  <div>
+                    <span class="pill" style="background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning);">● 已修改</span>
+                    <span class="pill">sudo 模式</span>
+                  </div>
+                  <div style="display:flex; gap:8px;">
+                    <span class="pill">取消</span>
+                    <span class="pill" style="background: var(--accent-soft); color: var(--accent);">保存</span>
+                  </div>
+                </div>
+                <div class="editor"><span class="ln">1</span> import { getToken } from '../stores/authStore'<br />
+<span class="ln">2</span> <br />
+<span class="ln">3</span> export function request(url: string) {<br />
+<span class="ln">4</span>   const token = getToken()<br />
+<span class="ln">5</span>   return fetch(url, {<br />
+<span class="ln">6</span> <span class="hl">    headers: token ? { Authorization: `Bearer ${token}` } : {},</span><br />
+<span class="ln">7</span>   })<br />
+<span class="ln">8</span> }<br />
+<span class="ln">9</span> <br />
+<span class="ln">10</span> // 右键菜单支持“添加到 AI 对话”<br />
+<span class="ln">11</span> // 大文件支持分段加载<br />
+<span class="ln">12</span> // 二进制文件不允许在线编辑</div>
+              </div>
+              <div class="terminal-inline">
+                <div style="color: var(--terminal-cmd);">ubuntu@prod-app-01:/srv/stackssh$ npm run build</div>
+                <div>vite v7.0.4 building for production...</div>
+                <div>✓ 146 modules transformed.</div>
+                <div>dist/index.html 0.54 kB</div>
+              </div>
+            </div>
+          </div>
+          <div class="annotation" style="top: 146px; left: 56px;">
+            <div class="pin">1</div>
+            <div class="label">文件树、标签和编辑器依然保持 IDE 气质，这轮只让视觉更完整，不改结构。</div>
+          </div>
+          <div class="annotation" style="top: 326px; right: 62px;">
+            <div class="pin">2</div>
+            <div class="label">主题切换后，最值得比较的是编辑器工具条和代码区的对比强度。</div>
+          </div>
+          <div class="annotation" style="bottom: 52px; left: 400px;">
+            <div class="pin">3</div>
+            <div class="label">文件与终端分屏仍然是亮点，观察三主题下是否都能保持清楚边界。</div>
+          </div>
+        </div>
+      </div>
+      <aside class="card panel side-note">
+        <h3>当前能力</h3>
+        <ul>
+          <li>支持多文件标签、Monaco 编辑、sudo 保存和大文件分段加载。</li>
+          <li>支持把选中文本或整文件加入 AI 上下文。</li>
+          <li>文件与终端可以共存，是后续正式改造时值得保留的强项。</li>
+        </ul>
+        <h3 style="margin-top:18px;">评审建议</h3>
+        <ul>
+          <li>看工具条是否还需要更强操作感。</li>
+          <li>看文件树是否要补搜索 / 过滤视觉入口。</li>
+          <li>决定未来更偏 VS Code 还是更偏 Cursor 风格。</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="screen" id="screen-git">
+      <div class="panel card">
+        <h2>Git 管理原型</h2>
+        <div class="prototype-shell stage">
+          <div class="window-bar">
+            <div class="window-dots">
+              <span class="dot-r"></span>
+              <span class="dot-y"></span>
+              <span class="dot-g"></span>
+            </div>
+            <span>GitPanel.tsx</span>
+            <span>AI-assisted remote repository workspace</span>
+          </div>
+          <div class="git-layout">
+            <div class="git-left">
+              <div class="section-title">
+                <span>仓库路径</span>
+                <span class="pill">/srv/stackssh-client</span>
+              </div>
+              <div class="command-card" style="margin-bottom: 12px; background: color-mix(in srgb, var(--accent-soft) 30%, var(--surface-2) 70%);">
+                <strong style="display:block; margin-bottom:6px;">AI 协作定位</strong>
+                <div class="muted">不是独立 Git 客户端，而是 SSH + AI 工作流里的远程仓库控制面板。</div>
+              </div>
+              <div class="command-card">git -C "/srv/stackssh-client" status --porcelain -b</div>
+              <div class="stats">
+                <div class="mini">
+                  <strong>2</strong>
+                  <span class="muted">ahead</span>
+                </div>
+                <div class="mini">
+                  <strong>0</strong>
+                  <span class="muted">behind</span>
+                </div>
+                <div class="mini">
+                  <strong>3</strong>
+                  <span class="muted">modified</span>
+                </div>
+                <div class="mini">
+                  <strong>1</strong>
+                  <span class="muted">staged</span>
+                </div>
+              </div>
+              <div class="branch-item" style="background: var(--accent-soft);">
+                <strong>feature/chat-jwt-fix</strong>
+                <small>tracking origin/feature/chat-jwt-fix</small>
+              </div>
+              <div class="branch-item">
+                <strong>main</strong>
+                <small>点击切换分支</small>
+              </div>
+              <div class="branch-item">
+                <strong>release/1.1</strong>
+                <small>点击切换分支</small>
+              </div>
+            </div>
+            <div class="git-right">
+              <div class="section-title">
+                <span>最近提交与 AI 建议</span>
+                <div style="display:flex; gap:8px;">
+                  <span class="pill">Fetch</span>
+                  <span class="pill">Pull</span>
+                  <span class="pill">新建分支</span>
+                </div>
+              </div>
+              <div class="tool-row" style="margin-bottom: 12px; background: color-mix(in srgb, var(--accent-soft) 28%, var(--surface-2) 72%);">
+                <strong style="display:block; font-size:14px;">AI 可协助的 Git 动作</strong>
+                <small>解释变更风险、汇总提交、建议分支策略、生成修复命令，并结合当前 SSH 终端直接执行。</small>
+              </div>
+              <div class="recent-item">
+                <strong style="font-size:14px;">a91e23c</strong>
+                <small>fix: add JWT header to SSE and file download requests</small>
+              </div>
+              <div class="recent-item">
+                <strong style="font-size:14px;">2fe8bc1</strong>
+                <small>feat: simplify terminal toolbar and add codex-style chat view</small>
+              </div>
+              <div class="recent-item">
+                <strong style="font-size:14px;">b227d89</strong>
+                <small>feat: add remote branch management panel</small>
+              </div>
+              <div class="command-card" style="margin-top:16px;">
+                <strong style="display:block; margin-bottom:6px;">操作输出</strong>
+                <div class="muted" style="font-family:var(--font-mono); font-size: 13px;">
+                  Switched to branch 'feature/chat-jwt-fix'<br />
+                  Your branch is ahead of 'origin/feature/chat-jwt-fix' by 2 commits.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="annotation" style="top: 150px; left: 52px;">
+            <div class="pin">1</div>
+            <div class="label">Git 面板依旧是远程仓库仪表板，这轮重点在视觉成熟度，而不是扩功能。</div>
+          </div>
+          <div class="annotation" style="top: 192px; right: 70px;">
+            <div class="pin">2</div>
+            <div class="label">建议比较三主题下状态统计、活跃分支和操作输出是否都足够清晰。</div>
+          </div>
+        </div>
+      </div>
+      <aside class="card panel side-note">
+        <h3>当前代码能力</h3>
+        <ul>
+          <li>通过隐藏终端执行远程 git，不影响用户可见终端。</li>
+          <li>支持 repoPath 记忆、分支切换、新建分支、fetch、pull 和最近提交。</li>
+          <li>后续如果加 diff，这个页面就是自然入口。</li>
+        </ul>
+        <h3 style="margin-top:18px;">评审建议</h3>
+        <ul>
+          <li>确认是保持轻量状态面板，还是继续往完整 Git 工具演进。</li>
+          <li>观察白主题下这页会不会过于平。</li>
+          <li>决定是否要把 Git 做得更像桌面 IDE 的 Source Control 区。</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="screen" id="screen-extensions">
+      <div class="panel card">
+        <h2>Extensions / MCP / Skills 原型</h2>
+        <div class="prototype-shell stage">
+          <div class="window-bar">
+            <div class="window-dots">
+              <span class="dot-r"></span>
+              <span class="dot-y"></span>
+              <span class="dot-g"></span>
+            </div>
+            <span>LeftSidebar.tsx - extensions tab</span>
+            <span>Capability center: MCP + Skills + RAG</span>
+          </div>
+          <div class="extensions-layout">
+            <div class="ext-left">
+              <div class="section-title">
+                <span>MCP 外部能力</span>
+                <span class="pill">+ 添加</span>
+              </div>
+              <div class="tool-row" style="background: color-mix(in srgb, var(--accent-soft) 24%, var(--surface-2) 76%);">
+                <strong style="display:block; font-size:14px;">给 Agent 接外部工具</strong>
+                <small>MCP 决定 AI 可以读文件、调服务、访问外部系统，是“能不能做”的边界。</small>
+              </div>
+              <div class="tool-row">
+                <strong style="display:block; font-size:14px;">filesystem-server</strong>
+                <small>type: stdio · command: node dist/server.js</small>
+              </div>
+              <div class="tool-row">
+                <strong style="display:block; font-size:14px;">openai-sse</strong>
+                <small>type: sse · http://localhost:8090/sse</small>
+              </div>
+              <div class="section-title" style="margin-top:18px;">
+                <span>Skills 工作流能力</span>
+                <span class="pill">+ 添加</span>
+              </div>
+              <div class="tool-row" style="background: color-mix(in srgb, var(--warning) 14%, var(--surface-2) 86%);">
+                <strong style="display:block; font-size:14px;">给 Agent 一套做事方式</strong>
+                <small>Skills 决定它如何推进任务、如何组织输出，是“怎么做”的方法层。</small>
+              </div>
+              <div class="tool-row">
+                <strong style="display:block; font-size:14px;">resource</strong>
+                <small>classpath:agent/skills/my-skill/reference.md</small>
+              </div>
+              <div class="tool-row">
+                <strong style="display:block; font-size:14px;">directory</strong>
+                <small>classpath:agent/skills/ops-helper/</small>
+              </div>
+            </div>
+            <div class="ext-right">
+              <div class="section-title">
+                <span>RAG 知识上下文</span>
+                <div style="display:flex; gap:8px;">
+                  <span class="pill">当前连接</span>
+                  <span class="pill">上传文档</span>
+                </div>
+              </div>
+              <div class="tool-row" style="margin-bottom: 12px; background: color-mix(in srgb, var(--success) 14%, var(--surface-2) 86%);">
+                <strong style="display:block; font-size:14px;">给 Agent 补业务与运维知识</strong>
+                <small>RAG 决定它回答时“知道什么”，适合部署说明、排障文档、团队 SOP 等稳定知识。</small>
+              </div>
+              <div class="command-card" style="border-style:dashed; text-align:center; padding:18px;">
+                拖拽或点击上传 `.txt / .md`
+              </div>
+              <div class="kb-item">
+                <strong style="display:block; font-size:14px;">deploy-guide.md</strong>
+                <small>就绪 · 24 chunks</small>
+              </div>
+              <div class="kb-item">
+                <strong style="display:block; font-size:14px;">troubleshooting.txt</strong>
+                <small>处理中 · 轮询刷新中</small>
+              </div>
+              <div class="tool-row" style="margin-top:18px; background: color-mix(in srgb, var(--success) 16%, transparent);">
+                <strong style="display:block; font-size:14px;">保存能力组合</strong>
+                <small>调用 `updateToolsConfig` 推送到服务端重新装配，让当前 Agent 能力立刻生效。</small>
+              </div>
+            </div>
+          </div>
+          <div class="annotation" style="top: 148px; left: 52px;">
+            <div class="pin">1</div>
+            <div class="label">这屏依然偏“配置工具中心”，但通过主题和层级更容易看出模块边界。</div>
+          </div>
+          <div class="annotation" style="top: 196px; right: 56px;">
+            <div class="pin">2</div>
+            <div class="label">建议比较白 / 黑主题下 RAG 区和工具区是不是还要进一步拆分。</div>
+          </div>
+        </div>
+      </div>
+      <aside class="card panel side-note">
+        <h3>当前实现</h3>
+        <ul>
+          <li>不是占位页，已经包含 MCP / Skills 管理与知识库。</li>
+          <li>这轮先把它做得更像产品能力中心，而不是纯参数页。</li>
+          <li>如果后续要改信息架构，可以从这里继续拆一级入口。</li>
+        </ul>
+        <h3 style="margin-top:18px;">评审建议</h3>
+        <ul>
+          <li>看是否需要更强卡片化设计。</li>
+          <li>看知识库是否应该升级成单独面板。</li>
+          <li>决定这块长期是“配置页”还是“扩展中心”。</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="screen" id="screen-settings">
+      <div class="panel card">
+        <h2>设置弹窗原型</h2>
+        <div class="prototype-shell stage">
+          <div class="window-bar">
+            <div class="window-dots">
+              <span class="dot-r"></span>
+              <span class="dot-y"></span>
+              <span class="dot-g"></span>
+            </div>
+            <span>Settings.tsx</span>
+            <span>Resizable modal</span>
+          </div>
+          <div class="settings-layout">
+            <div class="settings-nav">
+              <div class="settings-menu-item">通用</div>
+              <div class="settings-menu-item active">外观</div>
+              <div class="settings-menu-item">终端</div>
+              <div class="settings-menu-item">关于</div>
+            </div>
+            <div class="settings-body">
+              <div class="section-title">
+                <span>外观设置</span>
+                <div style="display:flex; gap:8px;">
+                  <span class="pill">预览主题</span>
+                  <span class="pill" style="background: var(--accent-soft); color: var(--accent);">保存</span>
+                </div>
+              </div>
+
+              <div class="settings-row tool-row">
+                <strong style="display:block; font-size:13px;">当前主题</strong>
+                <small id="settings-theme-name">默认灰色 · 桌面工具灰调</small>
+              </div>
+
+              <div class="settings-theme-grid">
+                <div class="settings-theme-card active" data-theme-choice="default-gray">
+                  <div class="theme-preview">
+                    <div class="theme-preview-swatches">
+                      <span style="background:#1c232d;"></span>
+                      <span style="background:#293341;"></span>
+                      <span style="background:#6aa4ff;"></span>
+                    </div>
+                    <div class="theme-preview-mini">
+                      <div class="bar"></div>
+                      <div class="body"><span></span><span></span></div>
+                    </div>
+                  </div>
+                  <strong style="display:block; font-size:13px; color:var(--text); margin-bottom:4px;">默认灰色</strong>
+                  <small>桌面 IDE / VS Code Dark 灰调，适合作为默认产品风格。</small>
+                </div>
+
+                <div class="settings-theme-card" data-theme-choice="github-light">
+                  <div class="theme-preview">
+                    <div class="theme-preview-swatches">
+                      <span style="background:#ffffff;"></span>
+                      <span style="background:#f6f8fa;"></span>
+                      <span style="background:#0969da;"></span>
+                    </div>
+                    <div class="theme-preview-mini">
+                      <div class="bar"></div>
+                      <div class="body"><span></span><span></span></div>
+                    </div>
+                  </div>
+                  <strong style="display:block; font-size:13px; color:var(--text); margin-bottom:4px;">GitHub 白</strong>
+                  <small>白底、浅灰描边、冷色高亮，更适合演示和轻量浏览场景。</small>
+                </div>
+
+                <div class="settings-theme-card" data-theme-choice="github-dark">
+                  <div class="theme-preview">
+                    <div class="theme-preview-swatches">
+                      <span style="background:#0d1117;"></span>
+                      <span style="background:#161b22;"></span>
+                      <span style="background:#58a6ff;"></span>
+                    </div>
+                    <div class="theme-preview-mini">
+                      <div class="bar"></div>
+                      <div class="body"><span></span><span></span></div>
+                    </div>
+                  </div>
+                  <strong style="display:block; font-size:13px; color:var(--text); margin-bottom:4px;">GitHub 黑</strong>
+                  <small>深底、低对比边框、蓝色高亮，终端和代码阅读最稳定。</small>
+                </div>
+              </div>
+
+              <div class="settings-row tool-row" style="margin-top:14px;">
+                <strong style="display:block; font-size:13px;">主题说明</strong>
+                <small>顶部工具栏和这里共用同一主题状态，切换后全页面即时生效，并记住上次选择。</small>
+              </div>
+
+              <div class="settings-row tool-row" style="margin-top:14px; background: color-mix(in srgb, var(--accent-soft) 24%, var(--surface-2) 76%);">
+                <strong style="display:block; font-size:14px;">产品定位说明</strong>
+                <small>StackSSH 的主入口是 AI，但不能脱离 SSH。终端、文件、Git 是执行底座；模型、RAG、MCP、Skills 是让 Agent 更会做事的能力层。</small>
+              </div>
+            </div>
+          </div>
+          <div class="annotation" style="top: 146px; left: 54px;">
+            <div class="pin">1</div>
+            <div class="label">设置页现在也能直接切主题，既像真实产品入口，也方便对比正式方向。</div>
+          </div>
+          <div class="annotation" style="top: 214px; right: 60px;">
+            <div class="pin">2</div>
+            <div class="label">如果你后续更偏设置中心，这块就可以直接迁移到 React 页面里继续细化。</div>
+          </div>
+        </div>
+      </div>
+      <aside class="card panel side-note">
+        <h3>当前实现</h3>
+        <ul>
+          <li>顶部和设置页双入口切换主题，共用同一状态。</li>
+          <li>主题会记忆到 `localStorage`，刷新页面仍保持。</li>
+          <li>不改设置结构，只强化外观页的产品表现。</li>
+        </ul>
+        <h3 style="margin-top:18px;">建议你回来时先定</h3>
+        <ul>
+          <li>正式版默认主题选哪套。</li>
+          <li>是否保留 GitHub 白和 GitHub 黑作为真实可切换主题。</li>
+          <li>是否继续往品牌化方向加更多视觉元素。</li>
+        </ul>
+      </aside>
+    </section>
+
+    <div class="footer-note">
+      原型文件位置：
+      <a href="/I:/code/stackssh-client/docs/prototype/stackssh-client-prototype.html">docs/prototype/stackssh-client-prototype.html</a>。
+      这版已经支持顶部全局切换和设置页内主题切换，适合你醒来后直接对比三套主题并标注修改意见。
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "stackssh-prototype-theme";
+    const THEME_META = {
+      "default-gray": { label: "默认灰色 · 桌面工具灰调" },
+      "github-light": { label: "GitHub 白 · 浅背景与冷灰层级" },
+      "github-dark": { label: "GitHub 黑 · 深背景与蓝色高亮" }
+    };
+
+    const screenButtons = document.querySelectorAll("[data-screen]");
+    const screens = document.querySelectorAll(".screen");
+    const themeButtons = document.querySelectorAll("[data-theme-choice]");
+    const settingsThemeName = document.getElementById("settings-theme-name");
+    const root = document.documentElement;
+
+    function setActiveScreen(id) {
+      screenButtons.forEach((button) => {
+        button.classList.toggle("active", button.getAttribute("data-screen") === id);
+      });
+      screens.forEach((screen) => {
+        screen.classList.toggle("active", screen.id === `screen-${id}`);
+      });
+    }
+
+    function setTheme(theme) {
+      const resolvedTheme = THEME_META[theme] ? theme : "default-gray";
+      root.setAttribute("data-theme", resolvedTheme);
+      localStorage.setItem(STORAGE_KEY, resolvedTheme);
+      themeButtons.forEach((button) => {
+        button.classList.toggle("active", button.getAttribute("data-theme-choice") === resolvedTheme);
+      });
+      if (settingsThemeName) {
+        settingsThemeName.textContent = THEME_META[resolvedTheme].label;
+      }
+    }
+
+    screenButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        setActiveScreen(button.getAttribute("data-screen"));
+      });
+    });
+
+    themeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        setTheme(button.getAttribute("data-theme-choice"));
+      });
+    });
+
+    const savedTheme = localStorage.getItem(STORAGE_KEY) || "default-gray";
+    setTheme(savedTheme);
+    setActiveScreen("login");
+  </script>
+</body>
+</html>

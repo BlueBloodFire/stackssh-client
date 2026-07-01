@@ -12,6 +12,7 @@ import { useThemeStore } from '../stores/themeStore'
 import { useFileExplorerStore } from '../stores/fileExplorerStore'
 
 type TabId = 'servers' | 'files' | 'sftp' | 'git' | 'extensions'
+const FIXED_SIDEBAR_WIDTH = 380
 
 /**
  * MainView V4 - 统一终端管理 + 多文件标签
@@ -27,11 +28,9 @@ export function MainView() {
   const [sshModalOpen, setSshModalOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('servers')
   const [sidebarVisible, setSidebarVisible] = useState(true)
-  const [sidebarWidth, setSidebarWidth] = useState(260)
   const [chatVisible, setChatVisible] = useState(true)
   const [chatWidth, setChatWidth] = useState(400)
   const [terminalVisible, setTerminalVisible] = useState(true)
-  const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [isResizingChat, setIsResizingChat] = useState(false)
   
   // 文件标签页的布局模式
@@ -57,29 +56,6 @@ export function MainView() {
     closeOtherTabs, 
     closeAllTabs 
   } = useFileExplorerStore()
-
-  // Sidebar 拖拽
-  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsResizingSidebar(true)
-    const startX = e.clientX
-    const startWidth = sidebarWidth
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const newWidth = Math.max(180, Math.min(500, startWidth + (moveEvent.clientX - startX)))
-      setSidebarWidth(newWidth)
-    }
-
-    const onMouseUp = () => {
-      setIsResizingSidebar(false)
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = ''
-    }
-
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-  }, [sidebarWidth])
 
   // Chat 拖拽
   const handleChatResizeStart = useCallback((e: React.MouseEvent) => {
@@ -191,20 +167,9 @@ export function MainView() {
 
             <div
               className="flex-shrink-0 transition-none overflow-hidden relative"
-              style={{ width: sidebarWidth }}
+              style={{ width: FIXED_SIDEBAR_WIDTH }}
             >
               <LeftSidebar activeTab={activeTab} />
-            </div>
-
-            {/* Sidebar 拖拽条 */}
-            <div
-              className="w-1.5 h-full cursor-col-resize relative z-50 flex-shrink-0"
-              style={{ backgroundColor: isResizingSidebar ? colors.accent : 'transparent' }}
-              onMouseDown={handleSidebarResizeStart}
-            >
-              <div
-                className={`absolute inset-y-0 -left-[3px] -right-[3px] ${isResizingSidebar ? '' : 'hover:bg-blue-500/30'} rounded-full`}
-              />
             </div>
           </>
         )}
@@ -231,7 +196,7 @@ export function MainView() {
             <div className="h-full min-w-0 flex flex-col">
               {/* 工具栏（仅在 files 标签下显示终端切换和文件标签） */}
               {activeTab === 'files' && (
-                <div className="h-9 border-b flex items-center pr-2 relative" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
+                <div className="h-11 border-b flex items-center pr-3 relative" style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}>
                   {/* 左侧布局切换按钮 */}
                   {terminalVisible && (
                     <div className="flex-shrink-0 flex items-center h-full px-2 gap-1" style={{ borderRight: `1px solid ${colors.border}` }}>
@@ -242,7 +207,7 @@ export function MainView() {
                             setWorkbenchLayoutMode('tabs')
                             setIsTerminalActive(true)
                           }}
-                          className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors`}
+                          className="h-8 px-3 rounded-xl flex items-center gap-1.5 text-[13px] font-medium transition-colors"
                           style={{
                             color: workbenchLayoutMode === 'tabs' && isTerminalActive ? colors.accent : colors.textSecondary,
                             backgroundColor: workbenchLayoutMode === 'tabs' && isTerminalActive ? colors.bgPrimary : 'transparent',
@@ -260,7 +225,7 @@ export function MainView() {
                       
                       <button
                         onClick={() => setWorkbenchLayoutMode('split-horizontal')}
-                        className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors`}
+                        className="h-8 px-3 rounded-xl flex items-center gap-1.5 text-[13px] font-medium transition-colors"
                         style={{
                           color: workbenchLayoutMode === 'split-horizontal' ? colors.accent : colors.textSecondary,
                           backgroundColor: workbenchLayoutMode === 'split-horizontal' ? colors.bgPrimary : 'transparent',
@@ -276,7 +241,7 @@ export function MainView() {
                       
                       <button
                         onClick={() => setWorkbenchLayoutMode('split-vertical')}
-                        className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors`}
+                        className="h-8 px-3 rounded-xl flex items-center gap-1.5 text-[13px] font-medium transition-colors"
                         style={{
                           color: workbenchLayoutMode === 'split-vertical' ? colors.accent : colors.textSecondary,
                           backgroundColor: workbenchLayoutMode === 'split-vertical' ? colors.bgPrimary : 'transparent',
@@ -315,7 +280,7 @@ export function MainView() {
                             e.stopPropagation()
                             setContextMenu({ x: e.clientX, y: e.clientY, tabKey: tab.key })
                           }}
-                          className="group h-7 px-3 rounded-md flex items-center gap-2 text-xs max-w-[200px] flex-shrink-0 transition-colors"
+                          className="group h-8 px-3.5 rounded-xl flex items-center gap-2 text-[13px] max-w-[220px] flex-shrink-0 transition-colors"
                           style={{
                             color: isActive ? colors.text : colors.textSecondary,
                             backgroundColor: isActive ? colors.bgPrimary : 'transparent',
@@ -340,7 +305,7 @@ export function MainView() {
                       )
                     })}
                     {openTabs.length === 0 && (
-                      <span className="text-xs px-2" style={{ color: colors.textDim }}>
+                      <span className="text-[13px] px-2" style={{ color: colors.textDim }}>
                         点击左侧文件树打开文件
                       </span>
                     )}
@@ -354,10 +319,10 @@ export function MainView() {
                           e.stopPropagation()
                           setDropdownOpen(!dropdownOpen)
                         }}
-                        className="h-7 px-2 rounded-md flex items-center gap-1 text-xs hover:bg-black/5 transition-colors"
+                        className="h-8 px-3 rounded-xl flex items-center gap-1.5 text-[13px] hover:bg-black/5 transition-colors"
                         style={{ color: colors.textSecondary }}
                       >
-                        <span className="font-mono text-[10px] bg-black/10 px-1 rounded">{openTabs.length}</span>
+                        <span className="font-mono text-[11px] bg-black/10 px-1.5 py-0.5 rounded-md">{openTabs.length}</span>
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <polyline points="6 9 12 15 18 9"></polyline>
                         </svg>
@@ -369,13 +334,13 @@ export function MainView() {
                           className="absolute top-full right-0 mt-1 w-56 rounded-md shadow-lg border py-1 z-50 max-h-80 overflow-y-auto"
                           style={{ backgroundColor: colors.bgSecondary, borderColor: colors.border }}
                         >
-                          <div className="px-3 py-1.5 text-[11px] uppercase font-medium tracking-wider border-b mb-1" style={{ color: colors.textDim, borderColor: colors.border }}>
+                          <div className="px-3 py-2 text-[12px] uppercase font-medium tracking-wider border-b mb-1" style={{ color: colors.textDim, borderColor: colors.border }}>
                             打开的文件
                           </div>
                           {openTabs.map((tab) => (
                             <button
                               key={`menu-${tab.key}`}
-                              className="w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-black/5 transition-colors"
+                              className="w-full text-left px-3 py-2 text-[13px] flex items-center justify-between hover:bg-black/5 transition-colors"
                               style={{ color: activeTabKey === tab.key ? colors.accent : colors.text }}
                               onClick={() => {
                                 setActiveFileTab(tab.key)
@@ -441,8 +406,8 @@ export function MainView() {
                           <FileWorkspace />
                         </div>
                         <div 
-                          className="h-1 cursor-row-resize hover:bg-blue-500/30" 
-                          style={{ backgroundColor: isResizingTerminal ? colors.accent : 'transparent' }}
+                          className="h-1 cursor-row-resize" 
+                          style={{ backgroundColor: isResizingTerminal ? colors.accent : `${colors.accent}20` }}
                           onMouseDown={handleTerminalResizeStart}
                         />
                         <div style={{ height: terminalPanelSize, minHeight: 150 }}>
@@ -461,8 +426,8 @@ export function MainView() {
                           <FileWorkspace />
                         </div>
                         <div 
-                          className="w-1 cursor-col-resize hover:bg-blue-500/30" 
-                          style={{ backgroundColor: isResizingTerminal ? colors.accent : 'transparent' }}
+                          className="w-1 cursor-col-resize" 
+                          style={{ backgroundColor: isResizingTerminal ? colors.accent : `${colors.accent}20` }}
                           onMouseDown={handleTerminalResizeStart}
                         />
                         <div style={{ width: terminalPanelSize, minWidth: 250 }}>
@@ -504,7 +469,8 @@ export function MainView() {
               onMouseDown={handleChatResizeStart}
             >
               <div
-                className={`absolute inset-y-0 -left-[3px] -right-[3px] ${isResizingChat ? '' : 'hover:bg-blue-500/30'} rounded-full`}
+                className="absolute inset-y-0 -left-[3px] -right-[3px] rounded-full"
+                style={{ backgroundColor: isResizingChat ? colors.accent : `${colors.accent}20` }}
               />
             </div>
             <RightSidebar width={chatWidth} activeTerminalSessionId={activeTerminalSessionId} />
