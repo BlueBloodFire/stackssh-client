@@ -1,24 +1,26 @@
 # StackSSH Client
 
-`stackssh-client` is the desktop workbench for StackSSH.
+[中文文档](./README.zh-CN.md)
+
+`stackssh-client` is the desktop workbench of StackSSH.
 
 It provides an IDE-style interface for SSH operations, AI-assisted conversations, remote file management, and terminal workflows, while delegating actual SSH execution and AI orchestration to `stackssh-server`.
 
 ## What It Is
 
-StackSSH Client is not a simple SSH GUI.
+StackSSH Client is not a traditional SSH GUI.
 
-It is designed as an **AI-native remote operations workspace** with:
+It is an **AI-native remote operations workspace** with:
 
-- a terminal-focused workbench
+- a terminal-centered workbench
 - a right-side AI task panel
 - remote file and SFTP views
 - Git-oriented workflow support
-- themeable desktop UX built with Tauri
+- a themeable Tauri desktop experience
 
 ## Core Experience
 
-### 1. Terminal Workbench
+### Terminal Workbench
 
 - Open and manage SSH terminal sessions
 - Multi-tab terminal workflow
@@ -27,36 +29,54 @@ It is designed as an **AI-native remote operations workspace** with:
 - Dangerous command confirmation flow
 - WebSocket-based terminal interaction
 
-### 2. AI Task Center
+### AI Task Center
 
-- Chat with an operations-focused AI agent
+- Chat with an operations-oriented AI agent
 - Stream multi-step ReAct responses
 - Observe tool calls and tool results
 - Bind AI context to the active SSH terminal
 - Switch models and capability combinations from the UI
 
-### 3. Remote File Workflow
+### Remote File Workflow
 
-- Browse remote file tree
+- Browse remote file trees
 - Open and inspect file contents
 - Upload and download files
 - Work with SFTP-oriented file views
 
-### 4. Operator-Friendly Desktop UX
+### Operator-Friendly Desktop UX
 
 - Activity bar + sidebar + workbench layout
 - Light / dark / midnight themes
-- Settings for backend endpoint and appearance
+- Backend endpoint and appearance settings
 - Git-oriented panel for remote repository workflows
+
+## Typical Use Cases
+
+- Use one desktop workbench for terminal, file, and AI-assisted troubleshooting
+- Operate Linux servers with AI help while still keeping direct terminal control
+- Explore logs, configuration files, and repositories from the same interface
+- Connect AI conversations to the exact server session you are working on
+- Build an internal operations desktop for DevOps, SRE, backend, or platform teams
+
+## Why It Is Better Than a Traditional SSH Tool
+
+Traditional SSH tools usually stop at terminal access plus some file transfer capability. StackSSH Client is designed around a broader workflow.
+
+- AI conversation is built into the workbench instead of being an external side tool
+- Terminal, files, Git, and knowledge are placed in one unified interface
+- Terminal sessions can be tied to server-side agent execution
+- Backend endpoint, models, and capability combinations can be managed from the UI
+- It is built for operational context, not only for opening a shell window
 
 ## Product Role in StackSSH
 
 StackSSH uses a split architecture:
 
-- `stackssh-client` handles the user experience
+- `stackssh-client` handles interaction and visualization
 - `stackssh-server` owns SSH execution, credentials, policy, and AI orchestration
 
-This means the client stays focused on interaction, while sensitive execution stays on the server boundary.
+This keeps the client focused on user experience while sensitive execution stays on the server boundary.
 
 ## Tech Stack
 
@@ -66,7 +86,7 @@ This means the client stays focused on interaction, while sensitive execution st
 - Vite 7
 - Zustand
 - Tailwind CSS
-- Monaco Editor / xterm.js related tooling
+- Monaco Editor / xterm.js tooling
 
 ## Main Areas
 
@@ -86,7 +106,7 @@ src-tauri/     Tauri-side Rust host
 - SSH connection management
 - Terminal panel
 - AI conversation panel
-- File explorer / SFTP workspace
+- File explorer and SFTP workspace
 - Git panel
 - Theme and settings system
 - Knowledge / MCP / Skills capability management
@@ -98,7 +118,7 @@ src-tauri/     Tauri-side Rust host
 - Node.js 18+
 - npm
 - Rust toolchain for Tauri build
-- running `stackssh-server`
+- a running `stackssh-server`
 
 ### Install
 
@@ -138,27 +158,17 @@ By default the client expects:
 
 In development, Vite can proxy API and WebSocket traffic to the backend.
 
-## Recommended Repo Pairing
+## Recommended Pairing
 
-This repository is the desktop UI layer. For the backend service, use:
+This repository is the desktop UI layer. Use it together with:
 
-- `stackssh-server`
+- [`stackssh-server`](https://github.com/BlueBloodFire/stackssh-server)
 
 Together they form the full StackSSH product:
 
 - `stackssh-client`: UI, desktop interaction, workbench
 - `stackssh-server`: SSH execution, agent runtime, security boundary
 
-## Intended Audience
-
-StackSSH is aimed at people who spend real time in terminals and remote environments:
-
-- DevOps engineers
-- SREs
-- backend engineers
-- platform engineers
-- operators who want AI assistance without giving up terminal control
-
 ## License
 
-No license file is currently published in this repository. If you plan to reuse or distribute it, add an explicit license first.
+No license file is currently published in this repository. Add an explicit license before redistribution or external reuse.
