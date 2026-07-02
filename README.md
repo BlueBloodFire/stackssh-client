@@ -171,4 +171,4 @@ Together they form the full StackSSH product:
 
 ## License
 
-No license file is currently published in this repository. Add an explicit license before redistribution or external reuse.
+Licensed under the Apache License 2.0. See the [LICENSE](./LICENSE) file for details.
